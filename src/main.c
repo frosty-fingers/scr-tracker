@@ -99,7 +99,7 @@ static void draw_life(void) {
     printf((active == COUNTER_LIFE) ? ">" : " ");
 
     gotoxy(9u, ROW_LIFE);
-    printf("%2u", (uint8_t)counters[COUNTER_LIFE]);
+    printf("%2u", (unsigned int)counters[COUNTER_LIFE]);
 
     gotoxy(2u, ROW_DEATHDOOR);
     printf((counters[COUNTER_LIFE] == LIFE_MIN) ? "  DEATHS DOOR   " : "                ");
@@ -111,7 +111,7 @@ static void draw_elements(void) {
 
     for (i = 0u; i < 4u; i++) {
         gotoxy(element_col[i], ROW_ELEM_VAL);
-        printf("%2u", (uint8_t)counters[COUNTER_FIRE + i]);
+        printf("%2u", (unsigned int)counters[COUNTER_FIRE + i]);
 
         gotoxy(element_col[i], ROW_ELEM_CUR);
         printf((active == COUNTER_FIRE + i) ? "^^" : "  ");
