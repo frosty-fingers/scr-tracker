@@ -3,6 +3,7 @@
 #include <gb/cgb.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <gbdk/console.h>
 
 #include "elements.h"
 
