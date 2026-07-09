@@ -1,0 +1,46 @@
+name: Build GBC ROM
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  GBDK_VERSION: "4.5.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache GBDK-2020
+        id: cache-gbdk
+        uses: actions/cache@v4
+        with:
+          path: /opt/gbdk
+          key: gbdk-linux64-${{ env.GBDK_VERSION }}
+
+      - name: Download GBDK-2020
+        if: steps.cache-gbdk.outputs.cache-hit != 'true'
+        run: |
+          curl -Lo gbdk.tar.gz \
+            https://github.com/gbdk-2020/gbdk-2020/releases/download/${{ env.GBDK_VERSION }}/gbdk-linux64.tar.gz
+          mkdir -p /opt
+          tar -xzf gbdk.tar.gz -C /opt
+
+      - name: Build ROM
+        run: |
+          export GBDK_HOME=/opt/gbdk/
+          make clean
+          make release
+
+      - name: Upload ROM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rom-${{ github.sha }}
+          path: |
+            release/*.gbc
+            release/*.sha256
+          if-no-files-found: error
+          retention-days: 30
