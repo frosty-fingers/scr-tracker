@@ -11,7 +11,7 @@ GBDK_HOME  ?= /opt/gbdk/
 LCC        := $(GBDK_HOME)bin/lcc
 PNG2ASSET  := $(GBDK_HOME)bin/png2asset
 
-PROJECT    := mygame
+PROJECT    := sorceryLife
 VERSION    := 0.1.0
 
 SRCDIR     := src
@@ -24,7 +24,7 @@ RELEASEDIR := release
 # --- Cartridge configuration -----------------------------------------
 # 0x1B = MBC5 + RAM + BATTERY  (battery-backed save RAM, no rumble)
 # 0x1E = MBC5 + RAM + BATTERY + RUMBLE
-CART_TYPE  := 0x1B
+CART_TYPE  := 0x00
 
 # -Wm-yc  = CGB-compatible (runs on GBC, degrades gracefully on DMG)
 # -Wm-yC  = CGB-exclusive (GBC only, refuses to boot on original DMG)
