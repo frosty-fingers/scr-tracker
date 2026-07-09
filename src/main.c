@@ -9,9 +9,6 @@
 
 // NOTE: this project has no save data and no music, so save.h/music.h
 // (both still present in src/) are intentionally not included here.
-// See CLAUDE.md / docs/GOTCHAS.md for why the CGB palette call below is
-// required - the template's original main.c was missing it, which is
-// exactly the "blank white screen" bug that gotcha documents.
 
 #define LIFE_START   20u
 #define LIFE_MIN     0u
@@ -20,40 +17,71 @@
 #define ELEM_MAX     99u
 
 #define COUNTER_LIFE  0u
-#define COUNTER_FIRE  1u
-#define COUNTER_WATER 2u
-#define COUNTER_EARTH 3u
-#define COUNTER_AIR   4u
+#define COUNTER_AIR   1u
+#define COUNTER_EARTH 2u
+#define COUNTER_FIRE  3u
+#define COUNTER_WATER 4u
 #define COUNTER_COUNT 5u
 
-// Screen columns where each element's icon/value/cursor live.
-static const uint8_t element_col[4] = { 1u, 6u, 11u, 16u };
-static const uint8_t element_tile[4] = { TILE_FIRE, TILE_WATER, TILE_EARTH, TILE_AIR };
-static const char *element_letter[4] = { "F", "W", "E", "A" };
+// Order requested: AIR, EARTH, FIRE, WATER - laid out as a 2x2 grid.
+// icon_col/icon_row are the top-left tile of each 2x2 (16x16px) icon;
+// label/value text sits 3 columns to the right of the icon.
+static const uint8_t icon_col[4]   = { 1u, 11u, 1u, 11u };
+static const uint8_t icon_row[4]   = { 7u, 7u, 11u, 11u };
+static const uint8_t icon_tile[4]  = { TILE_AIR, TILE_EARTH, TILE_FIRE, TILE_WATER };
+static const uint8_t icon_pal[4]   = { PAL_AIR, PAL_EARTH, PAL_FIRE, PAL_WATER };
+static const char *element_label[4] = { "AIR", "EARTH", "FIRE", "WATER" };
+
+#define LABEL_COL_OFFSET  3u
+#define CURSOR_COL_OFFSET 2u
 
 #define ROW_TITLE1    0u
 #define ROW_TITLE2    1u
 #define ROW_LIFE_CUR  3u
 #define ROW_LIFE      3u
 #define ROW_DEATHDOOR 5u
-#define ROW_ELEM_ICON 9u
-#define ROW_ELEM_VAL  10u
-#define ROW_ELEM_CUR  11u
 #define ROW_HINT1     15u
 #define ROW_HINT2     16u
+
+// How long (in frames, ~60/sec) A/B must be held before auto-repeat
+// kicks in, and how many frames between each repeated step after that.
+#define REPEAT_DELAY     18u
+#define REPEAT_INTERVAL  5u
 
 static uint8_t counters[COUNTER_COUNT];
 static uint8_t active = COUNTER_LIFE;
 
 // Sets up the CGB palette (see docs/GOTCHAS.md - required or the screen
 // can render blank/white on CGB hardware), loads the element icon
-// tiles, and turns the display on.
+// tiles (and their per-icon color palettes on CGB), and turns the
+// display on.
 static void init_graphics(void) {
+    uint8_t i;
+    uint8_t attr[4];
+    uint8_t tiles[4];
+
     if (_cpu == CGB_TYPE) {
         set_default_palette();
+        set_bkg_palette(0u, 4u, element_palettes);
     }
 
-    set_bkg_data(TILE_FIRST_ELEMENT, 4u, element_tiles);
+    set_bkg_data(TILE_FIRST_ELEMENT, 4u * TILES_PER_ELEMENT, element_tiles);
+
+    for (i = 0u; i < 4u; i++) {
+        tiles[0] = icon_tile[i] + 0u;
+        tiles[1] = icon_tile[i] + 1u;
+        tiles[2] = icon_tile[i] + 2u;
+        tiles[3] = icon_tile[i] + 3u;
+
+        if (_cpu == CGB_TYPE) {
+            attr[0] = attr[1] = attr[2] = attr[3] = icon_pal[i];
+            VBK_REG = VBK_ATTRIBUTES;
+            set_bkg_tiles(icon_col[i], icon_row[i], 2u, 2u, attr);
+            VBK_REG = VBK_TILES;
+        }
+
+        set_bkg_tiles(icon_col[i], icon_row[i], 2u, 2u, tiles);
+    }
 
     SHOW_BKG;
     DISPLAY_ON;
@@ -61,13 +89,21 @@ static void init_graphics(void) {
 
 static void reset_counters(void) {
     counters[COUNTER_LIFE] = LIFE_START;
+    counters[COUNTER_AIR] = 0u;
+    counters[COUNTER_EARTH] = 0u;
     counters[COUNTER_FIRE] = 0u;
     counters[COUNTER_WATER] = 0u;
-    counters[COUNTER_EARTH] = 0u;
-    counters[COUNTER_AIR] = 0u;
 }
 
-// Draws everything that never changes: title, icons, static labels.
+// Prints a counter value left-aligned followed by a blanking space, so
+// a value that shrinks by a digit (e.g. 10 -> 9) doesn't leave a stale
+// digit behind. GBDK's printf doesn't reliably honor width specifiers
+// like "%2u" (see docs/GOTCHAS.md), so we don't rely on one here.
+static void print_value(uint8_t value) {
+    printf("%u ", (unsigned int)value);
+}
+
+// Draws everything that never changes: title, icons, element labels.
 static void draw_static_ui(void) {
     uint8_t i;
 
@@ -80,9 +116,8 @@ static void draw_static_ui(void) {
     printf("LIFE");
 
     for (i = 0u; i < 4u; i++) {
-        set_bkg_tiles(element_col[i], ROW_ELEM_ICON, 1u, 1u, &element_tile[i]);
-        gotoxy(element_col[i] + 1u, ROW_ELEM_ICON);
-        printf(element_letter[i]);
+        gotoxy(icon_col[i] + LABEL_COL_OFFSET, icon_row[i]);
+        printf(element_label[i]);
     }
 
     gotoxy(0u, ROW_HINT1);
@@ -99,7 +134,7 @@ static void draw_life(void) {
     printf((active == COUNTER_LIFE) ? ">" : " ");
 
     gotoxy(9u, ROW_LIFE);
-    printf("%2u", (unsigned int)counters[COUNTER_LIFE]);
+    print_value(counters[COUNTER_LIFE]);
 
     gotoxy(2u, ROW_DEATHDOOR);
     printf((counters[COUNTER_LIFE] == LIFE_MIN) ? "  DEATHS DOOR   " : "                ");
@@ -110,18 +145,33 @@ static void draw_elements(void) {
     uint8_t i;
 
     for (i = 0u; i < 4u; i++) {
-        gotoxy(element_col[i], ROW_ELEM_VAL);
-        printf("%2u", (unsigned int)counters[COUNTER_FIRE + i]);
+        gotoxy(icon_col[i] + LABEL_COL_OFFSET, icon_row[i] + 1u);
+        print_value(counters[COUNTER_AIR + i]);
 
-        gotoxy(element_col[i], ROW_ELEM_CUR);
-        printf((active == COUNTER_FIRE + i) ? "^^" : "  ");
+        gotoxy(icon_col[i] + CURSOR_COL_OFFSET, icon_row[i]);
+        printf((active == COUNTER_AIR + i) ? ">" : " ");
     }
 }
 
+// Returns 1 if the active counter is currently allowed to change, 0 if
+// it's locked. LIFE locks at Death's Door (0) until START resets it -
+// elements are never locked.
+static uint8_t counter_is_locked(void) {
+    return (active == COUNTER_LIFE) && (counters[COUNTER_LIFE] == LIFE_MIN);
+}
+
 static void apply_delta(int8_t delta) {
-    uint8_t value = counters[active];
-    uint8_t min = (active == COUNTER_LIFE) ? LIFE_MIN : ELEM_MIN;
-    uint8_t max = (active == COUNTER_LIFE) ? LIFE_MAX : ELEM_MAX;
+    uint8_t value;
+    uint8_t min;
+    uint8_t max;
+
+    if (counter_is_locked()) {
+        return;
+    }
+
+    value = counters[active];
+    min = (active == COUNTER_LIFE) ? LIFE_MIN : ELEM_MIN;
+    max = (active == COUNTER_LIFE) ? LIFE_MAX : ELEM_MAX;
 
     if (delta > 0) {
         if (value < max) {
@@ -136,9 +186,18 @@ static void apply_delta(int8_t delta) {
     counters[active] = value;
 }
 
+static void redraw_active(void) {
+    if (active == COUNTER_LIFE) {
+        draw_life();
+    } else {
+        draw_elements();
+    }
+}
+
 void main(void) {
     uint8_t prev_keys = 0u;
     uint8_t keys, pressed;
+    uint8_t a_hold = 0u, b_hold = 0u;
 
     init_graphics();
     reset_counters();
@@ -159,24 +218,46 @@ void main(void) {
             active = (active == COUNTER_COUNT - 1u) ? COUNTER_LIFE : (active + 1u);
             draw_life();
             draw_elements();
-        } else if (pressed & J_A) {
-            apply_delta(1);
-            if (active == COUNTER_LIFE) {
-                draw_life();
-            } else {
-                draw_elements();
-            }
-        } else if (pressed & J_B) {
-            apply_delta(-1);
-            if (active == COUNTER_LIFE) {
-                draw_life();
-            } else {
-                draw_elements();
-            }
         } else if (pressed & J_START) {
             reset_counters();
             draw_life();
             draw_elements();
+        }
+
+        // A: +1 on press, then auto-repeat while held.
+        if (keys & J_A) {
+            if (pressed & J_A) {
+                apply_delta(1);
+                redraw_active();
+                a_hold = 0u;
+            } else {
+                a_hold++;
+                if (a_hold >= REPEAT_DELAY &&
+                    ((a_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
+                    apply_delta(1);
+                    redraw_active();
+                }
+            }
+        } else {
+            a_hold = 0u;
+        }
+
+        // B: -1 on press, then auto-repeat while held.
+        if (keys & J_B) {
+            if (pressed & J_B) {
+                apply_delta(-1);
+                redraw_active();
+                b_hold = 0u;
+            } else {
+                b_hold++;
+                if (b_hold >= REPEAT_DELAY &&
+                    ((b_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
+                    apply_delta(-1);
+                    redraw_active();
+                }
+            }
+        } else {
+            b_hold = 0u;
         }
 
         vsync();
