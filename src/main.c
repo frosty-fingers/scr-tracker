@@ -7,8 +7,10 @@
 
 #include "elements.h"
 
-// NOTE: this project has no save data and no music, so save.h/music.h
-// (both still present in src/) are intentionally not included here.
+// NOTE: this project has no save data, so save.h (still present in
+// src/) is intentionally not included here. Sound IS used (see
+// play_tone() below) but that's just direct PSG register writes, not
+// the music.h/hUGEDriver system - music.h is still unused.
 
 #define LIFE_START   20u
 #define LIFE_MIN     0u
@@ -23,44 +25,49 @@
 #define COUNTER_WATER 4u
 #define COUNTER_COUNT 5u
 
-// Order requested: AIR, EARTH, FIRE, WATER - laid out as a 2x2 grid.
-// icon_col/icon_row are the tile position of each 8x8 icon; label/value
-// text sits 2 columns to the right of the icon.
-static const uint8_t icon_col[4]   = { 1u, 11u, 1u, 11u };
-static const uint8_t icon_row[4]   = { 7u, 7u, 11u, 11u };
-static const uint8_t icon_tile[4]  = { TILE_AIR, TILE_EARTH, TILE_FIRE, TILE_WATER };
-static const char *element_label[4] = { "AIR", "EARTH", "FIRE", "WATER" };
+// Elements are laid out as one row each, AIR/EARTH/FIRE/WATER top to
+// bottom - a threshold's count is shown as that many repeated element
+// symbols (up to MAX_SYMBOLS), not a number, so it reads at a glance.
+static const uint8_t element_row[4]  = { 7u, 8u, 9u, 10u };
+static const uint8_t icon_tile[4]    = { TILE_AIR, TILE_EARTH, TILE_FIRE, TILE_WATER };
+// Labels are pre-padded to a fixed width so columns line up without
+// relying on printf width specifiers (see docs/GOTCHAS.md - GBDK's
+// printf doesn't reliably honor those).
+static const char *element_label[4]  = { "AIR   ", "EARTH ", "FIRE  ", "WATER " };
 
-#define LABEL_COL_OFFSET  2u
-#define CURSOR_COL_OFFSET 1u
+#define COL_CURSOR    0u
+#define COL_LABEL     1u
+#define COL_SYMBOLS   7u
+#define COL_OVERFLOW  15u
+#define MAX_SYMBOLS   8u
 
 #define ROW_TITLE1    0u
 #define ROW_TITLE2    1u
 #define ROW_LIFE_CUR  3u
 #define ROW_LIFE      3u
 #define ROW_DEATHDOOR 5u
-#define ROW_HINT1     15u
-#define ROW_HINT2     16u
+#define ROW_HINT1     13u
+#define ROW_HINT2     14u
 
 // How long (in frames, ~60/sec) A/B must be held before auto-repeat
 // kicks in, and how many frames between each repeated step after that.
 #define REPEAT_DELAY     18u
 #define REPEAT_INTERVAL  5u
 
+// Placeholder SFX frequencies (PSG channel 1 period values, not Hz -
+// see play_tone()). Roughly A5 for +1, A4 for -1, so they're clearly
+// distinguishable by ear.
+#define SND_FREQ_INC  1899u
+#define SND_FREQ_DEC  1750u
+
 static uint8_t counters[COUNTER_COUNT];
 static uint8_t active = COUNTER_LIFE;
 
-// Loads the element icon tiles and places them on the background. Must
-// be called AFTER the font/console system has been "primed" (see
-// prime_console() and main()) - see docs/GOTCHAS.md for why.
+// Loads the element icon tiles. Must be called AFTER the font/console
+// system has been "primed" (see prime_console() and main()) - see
+// docs/GOTCHAS.md for why.
 static void init_graphics(void) {
-    uint8_t i;
-
     set_bkg_data(TILE_FIRST_ELEMENT, 4u, element_tiles);
-
-    for (i = 0u; i < 4u; i++) {
-        set_bkg_tiles(icon_col[i], icon_row[i], 1u, 1u, &icon_tile[i]);
-    }
 }
 
 // The font/console system clears the background tile map the first
@@ -71,6 +78,25 @@ static void init_graphics(void) {
 static void prime_console(void) {
     gotoxy(0u, 0u);
     printf(" ");
+}
+
+// Turns the PSG on and routes channel 1 to both speakers at full
+// volume. Called once at startup.
+static void init_sound(void) {
+    NR52_REG = 0x80u;
+    NR50_REG = 0x77u;
+    NR51_REG = 0x11u;
+}
+
+// Plays a short channel-1 "blip" that fades out quickly - a generic
+// placeholder menu ding for +/- feedback. freq_reg is an 11-bit PSG
+// period value (not Hz): higher value = higher pitch.
+static void play_tone(uint16_t freq_reg) {
+    NR10_REG = 0x00u;                              // no pitch sweep
+    NR11_REG = 0x80u;                               // 50% duty
+    NR12_REG = 0xF2u;                               // vol 15, fast decay
+    NR13_REG = freq_reg & 0xFFu;
+    NR14_REG = 0x80u | ((freq_reg >> 8u) & 0x07u);   // trigger, no length limit
 }
 
 static void reset_counters(void) {
@@ -89,7 +115,9 @@ static void print_value(uint8_t value) {
     printf("%u ", (unsigned int)value);
 }
 
-// Draws everything that never changes: title, icons, element labels.
+// Draws everything that never changes: title, LIFE label, element
+// labels, hints. Element labels are printed once here since (unlike
+// their symbol counts) they never change.
 static void draw_static_ui(void) {
     uint8_t i;
 
@@ -102,7 +130,7 @@ static void draw_static_ui(void) {
     printf("LIFE");
 
     for (i = 0u; i < 4u; i++) {
-        gotoxy(icon_col[i] + LABEL_COL_OFFSET, icon_row[i]);
+        gotoxy(COL_LABEL, element_row[i]);
         printf(element_label[i]);
     }
 
@@ -126,16 +154,35 @@ static void draw_life(void) {
     printf((counters[COUNTER_LIFE] == LIFE_MIN) ? "  DEATHS DOOR   " : "                ");
 }
 
-// Redraws all 4 element values and whichever cursor arrow is active.
+// Redraws one element's row: its symbol count (as repeated icon tiles,
+// capped at MAX_SYMBOLS with the exact total shown alongside if it goes
+// over), and its cursor marker.
+static void draw_element(uint8_t index) {
+    uint8_t row_tiles[MAX_SYMBOLS];
+    uint8_t count = counters[COUNTER_AIR + index];
+    uint8_t shown = (count > MAX_SYMBOLS) ? MAX_SYMBOLS : count;
+    uint8_t j;
+
+    for (j = 0u; j < MAX_SYMBOLS; j++) {
+        row_tiles[j] = (j < shown) ? icon_tile[index] : 0u;
+    }
+    set_bkg_tiles(COL_SYMBOLS, element_row[index], MAX_SYMBOLS, 1u, row_tiles);
+
+    gotoxy(COL_OVERFLOW, element_row[index]);
+    if (count > MAX_SYMBOLS) {
+        printf("%u ", (unsigned int)count);
+    } else {
+        printf("   ");
+    }
+
+    gotoxy(COL_CURSOR, element_row[index]);
+    printf((active == COUNTER_AIR + index) ? ">" : " ");
+}
+
 static void draw_elements(void) {
     uint8_t i;
-
     for (i = 0u; i < 4u; i++) {
-        gotoxy(icon_col[i] + LABEL_COL_OFFSET, icon_row[i] + 1u);
-        print_value(counters[COUNTER_AIR + i]);
-
-        gotoxy(icon_col[i] + CURSOR_COL_OFFSET, icon_row[i]);
-        printf((active == COUNTER_AIR + i) ? ">" : " ");
+        draw_element(i);
     }
 }
 
@@ -146,13 +193,16 @@ static uint8_t counter_is_locked(void) {
     return (active == COUNTER_LIFE) && (counters[COUNTER_LIFE] == LIFE_MIN);
 }
 
-static void apply_delta(int8_t delta) {
+// Applies +1/-1 to the active counter. Returns 1 if the value actually
+// changed (so callers can skip redrawing/playing a sound when locked or
+// already at a limit), 0 otherwise.
+static uint8_t apply_delta(int8_t delta) {
     uint8_t value;
     uint8_t min;
     uint8_t max;
 
     if (counter_is_locked()) {
-        return;
+        return 0u;
     }
 
     value = counters[active];
@@ -160,23 +210,26 @@ static void apply_delta(int8_t delta) {
     max = (active == COUNTER_LIFE) ? LIFE_MAX : ELEM_MAX;
 
     if (delta > 0) {
-        if (value < max) {
-            value++;
+        if (value >= max) {
+            return 0u;
         }
+        value++;
     } else {
-        if (value > min) {
-            value--;
+        if (value <= min) {
+            return 0u;
         }
+        value--;
     }
 
     counters[active] = value;
+    return 1u;
 }
 
 static void redraw_active(void) {
     if (active == COUNTER_LIFE) {
         draw_life();
     } else {
-        draw_elements();
+        draw_element(active - COUNTER_AIR);
     }
 }
 
@@ -189,6 +242,7 @@ void main(void) {
         set_default_palette();
     }
 
+    init_sound();
     prime_console();
     init_graphics();
     reset_counters();
@@ -221,15 +275,19 @@ void main(void) {
         // A: +1 on press, then auto-repeat while held.
         if (keys & J_A) {
             if (pressed & J_A) {
-                apply_delta(1);
-                redraw_active();
+                if (apply_delta(1)) {
+                    redraw_active();
+                    play_tone(SND_FREQ_INC);
+                }
                 a_hold = 0u;
             } else {
                 a_hold++;
                 if (a_hold >= REPEAT_DELAY &&
                     ((a_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
-                    apply_delta(1);
-                    redraw_active();
+                    if (apply_delta(1)) {
+                        redraw_active();
+                        play_tone(SND_FREQ_INC);
+                    }
                 }
             }
         } else {
@@ -239,15 +297,19 @@ void main(void) {
         // B: -1 on press, then auto-repeat while held.
         if (keys & J_B) {
             if (pressed & J_B) {
-                apply_delta(-1);
-                redraw_active();
+                if (apply_delta(-1)) {
+                    redraw_active();
+                    play_tone(SND_FREQ_DEC);
+                }
                 b_hold = 0u;
             } else {
                 b_hold++;
                 if (b_hold >= REPEAT_DELAY &&
                     ((b_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
-                    apply_delta(-1);
-                    redraw_active();
+                    if (apply_delta(-1)) {
+                        redraw_active();
+                        play_tone(SND_FREQ_DEC);
+                    }
                 }
             }
         } else {
