@@ -24,15 +24,15 @@
 #define COUNTER_COUNT 5u
 
 // Order requested: AIR, EARTH, FIRE, WATER - laid out as a 2x2 grid.
-// icon_col/icon_row are the top-left tile of each 2x2 (16x16px) icon;
-// label/value text sits 3 columns to the right of the icon.
+// icon_col/icon_row are the tile position of each 8x8 icon; label/value
+// text sits 2 columns to the right of the icon.
 static const uint8_t icon_col[4]   = { 1u, 11u, 1u, 11u };
 static const uint8_t icon_row[4]   = { 7u, 7u, 11u, 11u };
 static const uint8_t icon_tile[4]  = { TILE_AIR, TILE_EARTH, TILE_FIRE, TILE_WATER };
 static const char *element_label[4] = { "AIR", "EARTH", "FIRE", "WATER" };
 
-#define LABEL_COL_OFFSET  3u
-#define CURSOR_COL_OFFSET 2u
+#define LABEL_COL_OFFSET  2u
+#define CURSOR_COL_OFFSET 1u
 
 #define ROW_TITLE1    0u
 #define ROW_TITLE2    1u
@@ -54,25 +54,19 @@ static uint8_t active = COUNTER_LIFE;
 // required or the screen can render blank/white on CGB hardware), loads
 // the element icon tiles, and turns the display on.
 //
-// NOTE: no per-icon CGB color yet - that's being reintroduced separately
-// once the plain shapes are confirmed rendering correctly.
+// NOTE: single-tile placement is intentional right now - see the note
+// at the top of elements.h and docs/STATUS.md.
 static void init_graphics(void) {
     uint8_t i;
-    uint8_t tiles[4];
 
     if (_cpu == CGB_TYPE) {
         set_default_palette();
     }
 
-    set_bkg_data(TILE_FIRST_ELEMENT, 4u * TILES_PER_ELEMENT, element_tiles);
+    set_bkg_data(TILE_FIRST_ELEMENT, 4u, element_tiles);
 
     for (i = 0u; i < 4u; i++) {
-        tiles[0] = icon_tile[i] + 0u;
-        tiles[1] = icon_tile[i] + 1u;
-        tiles[2] = icon_tile[i] + 2u;
-        tiles[3] = icon_tile[i] + 3u;
-
-        set_bkg_tiles(icon_col[i], icon_row[i], 2u, 2u, tiles);
+        set_bkg_tiles(icon_col[i], icon_row[i], 1u, 1u, &icon_tile[i]);
     }
 
     SHOW_BKG;
