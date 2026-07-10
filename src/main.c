@@ -29,7 +29,6 @@
 static const uint8_t icon_col[4]   = { 1u, 11u, 1u, 11u };
 static const uint8_t icon_row[4]   = { 7u, 7u, 11u, 11u };
 static const uint8_t icon_tile[4]  = { TILE_AIR, TILE_EARTH, TILE_FIRE, TILE_WATER };
-static const uint8_t icon_pal[4]   = { PAL_AIR, PAL_EARTH, PAL_FIRE, PAL_WATER };
 static const char *element_label[4] = { "AIR", "EARTH", "FIRE", "WATER" };
 
 #define LABEL_COL_OFFSET  3u
@@ -51,18 +50,18 @@ static const char *element_label[4] = { "AIR", "EARTH", "FIRE", "WATER" };
 static uint8_t counters[COUNTER_COUNT];
 static uint8_t active = COUNTER_LIFE;
 
-// Sets up the CGB palette (see docs/GOTCHAS.md - required or the screen
-// can render blank/white on CGB hardware), loads the element icon
-// tiles (and their per-icon color palettes on CGB), and turns the
-// display on.
+// Sets up the CGB grayscale-compatible palette (see docs/GOTCHAS.md -
+// required or the screen can render blank/white on CGB hardware), loads
+// the element icon tiles, and turns the display on.
+//
+// NOTE: no per-icon CGB color yet - that's being reintroduced separately
+// once the plain shapes are confirmed rendering correctly.
 static void init_graphics(void) {
     uint8_t i;
-    uint8_t attr[4];
     uint8_t tiles[4];
 
     if (_cpu == CGB_TYPE) {
         set_default_palette();
-        set_bkg_palette(0u, 4u, element_palettes);
     }
 
     set_bkg_data(TILE_FIRST_ELEMENT, 4u * TILES_PER_ELEMENT, element_tiles);
@@ -72,13 +71,6 @@ static void init_graphics(void) {
         tiles[1] = icon_tile[i] + 1u;
         tiles[2] = icon_tile[i] + 2u;
         tiles[3] = icon_tile[i] + 3u;
-
-        if (_cpu == CGB_TYPE) {
-            attr[0] = attr[1] = attr[2] = attr[3] = icon_pal[i];
-            VBK_REG = VBK_ATTRIBUTES;
-            set_bkg_tiles(icon_col[i], icon_row[i], 2u, 2u, attr);
-            VBK_REG = VBK_TILES;
-        }
 
         set_bkg_tiles(icon_col[i], icon_row[i], 2u, 2u, tiles);
     }
