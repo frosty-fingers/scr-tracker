@@ -50,6 +50,27 @@ static const char *element_label[4] = { "AIR", "EARTH", "FIRE", "WATER" };
 static uint8_t counters[COUNTER_COUNT];
 static uint8_t active = COUNTER_LIFE;
 
+// DIAGNOSTIC (see docs/STATUS.md): a single hardcoded solid tile,
+// completely independent of the AIR/EARTH/FIRE/WATER icon system, at a
+// fixed on-screen position that's otherwise empty. If this doesn't show
+// up as a solid black square either, the bug isn't in the icon tile
+// data/IDs specifically - something more fundamental about custom tile
+// placement is broken in this build.
+#define DIAG_TILE_ID  200u
+#define DIAG_COL      19u
+#define DIAG_ROW      17u
+
+static void init_diagnostic_tile(void) {
+    static const uint8_t solid_tile[16] = {
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    };
+    static const uint8_t diag_id = DIAG_TILE_ID;
+
+    set_bkg_data(DIAG_TILE_ID, 1u, solid_tile);
+    set_bkg_tiles(DIAG_COL, DIAG_ROW, 1u, 1u, &diag_id);
+}
+
 // Sets up the CGB grayscale-compatible palette (see docs/GOTCHAS.md -
 // required or the screen can render blank/white on CGB hardware), loads
 // the element icon tiles, and turns the display on.
@@ -68,6 +89,8 @@ static void init_graphics(void) {
     for (i = 0u; i < 4u; i++) {
         set_bkg_tiles(icon_col[i], icon_row[i], 1u, 1u, &icon_tile[i]);
     }
+
+    init_diagnostic_tile();
 
     SHOW_BKG;
     DISPLAY_ON;
