@@ -32,42 +32,51 @@ static const uint8_t element_tiles[4u * 16u] = {
     0xFF,0xFF,0x81,0x81,0x42,0x42,0x42,0x42,0x24,0x24,0x24,0x24,0x18,0x18,0x18,0x18,
 };
 
-// All 5 CGB background palettes used in the game, loaded together in
-// one set_bkg_palette() call starting at slot 0:
-//   slot 0        - default text/UI (used by every printf/gotoxy call
-//                   that doesn't get a custom attribute) - grey
-//                   background, gold ink.
-//   slots 1-4     - one per element (AIR/EARTH/FIRE/WATER), applied via
-//                   per-tile attributes in paint_row() (main.c). Same
-//                   grey background as slot 0 so icons blend in
-//                   seamlessly; only color 3 differs (each element's
-//                   own outline color), since the icons are hollow and
-//                   never use color 1 or 2.
+// Color themes - each one is a full set of 5 CGB background palettes
+// (slot 0 = default text/UI, slots 1-4 = AIR/EARTH/FIRE/WATER), picked
+// from the title screen's SETTINGS option and applied live via
+// apply_theme() in main.c. Adding a theme: add a name to theme_names
+// and a matching 20-entry palette block to theme_palettes (same slot
+// layout as before - see the comment that used to be here), then bump
+// THEME_COUNT. Selection is session-only (resets on power-on) since
+// this project has no save data.
 //
 // IMPORTANT: slot 0 must never be reused for an element palette (see
 // docs/GOTCHAS.md - that was the bug that made all text turn yellow).
-// Elements start at slot 1, not slot 0.
-//
-// Background is a neutral grey rather than brown specifically so it
-// doesn't compete with EARTH's brown - see docs/GOTCHAS.md for the
-// separate (now fixed) bug where leftover per-tile colors from a
-// previous screen could bleed through if this ever looked wrong after
-// a screen transition.
-#define BG_R  11
-#define BG_G  11
-#define BG_B  13
+// Elements start at slot 1, not slot 0, in every theme.
+#define THEME_COUNT  3u
 
-static const palette_color_t ui_palettes[5u * 4u] = {
-    // slot 0 - default text: grey background, gold ink
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(28,22,6),
-    // slot 1 - AIR: light grey (kept distinct from both the background and the gold text)
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(23,23,25),
-    // slot 2 - EARTH: brown
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(18,11,4),
-    // slot 3 - FIRE: red
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(24,4,4),
-    // slot 4 - WATER: blue
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(4,10,24),
+static const char *theme_names[THEME_COUNT] = {
+    "GREY",
+    "PARCHMENT",
+    "MIDNIGHT",
+};
+
+static const palette_color_t theme_palettes[THEME_COUNT][5u * 4u] = {
+    // GREY - grey background, gold text
+    {
+        RGB(11,11,13), RGB(11,11,13), RGB(11,11,13), RGB(28,22,6),   // text
+        RGB(11,11,13), RGB(11,11,13), RGB(11,11,13), RGB(23,23,25),  // AIR - light grey
+        RGB(11,11,13), RGB(11,11,13), RGB(11,11,13), RGB(26,16,5),   // EARTH - brown
+        RGB(11,11,13), RGB(11,11,13), RGB(11,11,13), RGB(31,6,6),    // FIRE - bright red
+        RGB(11,11,13), RGB(11,11,13), RGB(11,11,13), RGB(6,14,31),   // WATER - bright blue
+    },
+    // PARCHMENT - warm tan background, dark ink text
+    {
+        RGB(20,16,9), RGB(20,16,9), RGB(20,16,9), RGB(6,4,2),        // text
+        RGB(20,16,9), RGB(20,16,9), RGB(20,16,9), RGB(30,30,30),     // AIR - near white
+        RGB(20,16,9), RGB(20,16,9), RGB(20,16,9), RGB(14,8,2),       // EARTH - dark brown
+        RGB(20,16,9), RGB(20,16,9), RGB(20,16,9), RGB(26,4,2),       // FIRE - red
+        RGB(20,16,9), RGB(20,16,9), RGB(20,16,9), RGB(2,10,26),      // WATER - blue
+    },
+    // MIDNIGHT - dark navy background, pale text
+    {
+        RGB(2,3,9), RGB(2,3,9), RGB(2,3,9), RGB(24,24,28),           // text
+        RGB(2,3,9), RGB(2,3,9), RGB(2,3,9), RGB(18,18,20),           // AIR - grey
+        RGB(2,3,9), RGB(2,3,9), RGB(2,3,9), RGB(20,13,4),            // EARTH - amber brown
+        RGB(2,3,9), RGB(2,3,9), RGB(2,3,9), RGB(31,10,6),            // FIRE - orange-red
+        RGB(2,3,9), RGB(2,3,9), RGB(2,3,9), RGB(6,18,31),            // WATER - cyan blue
+    },
 };
 
 #endif // ELEMENTS_H
