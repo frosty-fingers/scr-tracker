@@ -10,9 +10,10 @@
 // edges = Air/Earth). Public-domain symbols, not the game's specific
 // artwork - hand-authored here rather than traced from any image.
 //
-// Pixel values: 0 = background, 3 = outline only (hollow interior, no
-// separate fill color). See docs/GOTCHAS.md for why any custom tile
-// placement must happen after the console/font system's first use.
+// Pixel values: 0 = background (white), 3 = outline only (hollow
+// interior, no separate fill color). See docs/GOTCHAS.md for why any
+// custom tile placement must happen after the console/font system's
+// first use, not before.
 
 #define TILE_FIRST_ELEMENT   128u
 
@@ -32,37 +33,23 @@ static const uint8_t element_tiles[4u * 16u] = {
     0xFF,0xFF,0x81,0x81,0x42,0x42,0x42,0x42,0x24,0x24,0x24,0x24,0x18,0x18,0x18,0x18,
 };
 
-// All 5 CGB background palettes used in the game, loaded together in
-// one set_bkg_palette() call starting at slot 0:
-//   slot 0        - default text/UI (used by every printf/gotoxy call
-//                   that doesn't get a custom attribute) - brown/grey
-//                   background, gold ink.
-//   slots 1-4     - one per element (AIR/EARTH/FIRE/WATER), applied via
-//                   per-tile attributes in paint_row() (main.c). Same
-//                   brown/grey background as slot 0 so icons blend in
-//                   seamlessly; only color 3 differs (each element's
-//                   own outline color), since the icons are hollow and
-//                   never use color 1 or 2.
-//
-// IMPORTANT: slot 0 must never be reused for an element palette (that
-// was the bug that made all text turn yellow - AIR's palette got
-// loaded into the slot the font uses by default). Elements start at
-// slot 1, not slot 0.
-#define BG_R  13
-#define BG_G  11
-#define BG_B  8
-
-static const palette_color_t ui_palettes[5u * 4u] = {
-    // slot 0 - default text: brown/grey background, gold ink
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(28,22,6),
-    // slot 1 - AIR: light grey (kept distinct from the gold text color)
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(22,22,22),
-    // slot 2 - EARTH: green
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(4,20,4),
-    // slot 3 - FIRE: red
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(24,4,4),
-    // slot 4 - WATER: blue
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(4,10,24),
+// Standard elemental colors (CGB only - DMG hardware just gets the
+// default grayscale palette). One palette per element, applied via
+// per-tile BG attributes (see paint_row() in main.c). Since the icons
+// are hollow (only pixel indices 0 and 3 are ever used - no separate
+// fill color), only color slot 3 (the outline) actually matters;
+// slots 0-2 are set to white to match the rest of the screen in case
+// they're ever sampled. Palette slot order matches element order:
+// 0 = AIR, 1 = EARTH, 2 = FIRE, 3 = WATER.
+static const palette_color_t element_palettes[4u * 4u] = {
+    // AIR - yellow
+    RGB(31,31,31), RGB(31,31,31), RGB(31,31,31), RGB(30,28,4),
+    // EARTH - green
+    RGB(31,31,31), RGB(31,31,31), RGB(31,31,31), RGB(4,22,4),
+    // FIRE - red
+    RGB(31,31,31), RGB(31,31,31), RGB(31,31,31), RGB(28,4,4),
+    // WATER - blue
+    RGB(31,31,31), RGB(31,31,31), RGB(31,31,31), RGB(4,12,28),
 };
 
 #endif // ELEMENTS_H
