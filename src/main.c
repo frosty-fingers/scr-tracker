@@ -105,7 +105,40 @@ static void paint_row(uint8_t col, uint8_t row, uint8_t w, uint8_t pal) {
     VBK_REG = VBK_TILES;
 }
 
-// ===================== shared counter logic =============================
+// cls() only clears the background tile ID plane, not the CGB
+// attribute (palette) plane - so leftover paint_row() colors from a
+// previous screen/mode stick around indefinitely on whatever cells
+// they were last applied to, bleeding into new text that happens to
+// land on the same row/column later (see docs/GOTCHAS.md). This resets
+// the whole visible screen's attributes back to palette slot 0 (the
+// default text palette). CGB only - no-op on DMG.
+static void clear_attributes(void) {
+    uint8_t attr[20];
+    uint8_t y;
+    uint8_t i;
+
+    if (_cpu != CGB_TYPE) {
+        return;
+    }
+
+    for (i = 0u; i < 20u; i++) {
+        attr[i] = 0u;
+    }
+    VBK_REG = VBK_ATTRIBUTES;
+    for (y = 0u; y < 18u; y++) {
+        set_bkg_tiles(0u, y, 20u, 1u, attr);
+    }
+    VBK_REG = VBK_TILES;
+}
+
+// Full screen reset before drawing a new screen: clears both tile IDs
+// (cls()) and leftover color attributes (clear_attributes()). Use this
+// instead of a bare cls() anywhere the game transitions between
+// screens/modes.
+static void full_clear(void) {
+    cls();
+    clear_attributes();
+}
 
 static uint8_t counter_is_locked(uint8_t p) {
     return (active[p] == COUNTER_LIFE) && (counters[p][COUNTER_LIFE] == LIFE_MIN);
@@ -401,7 +434,7 @@ static void enter_play_state(void) {
     reset_player(0u);
     reset_player(1u);
     game_state = STATE_PLAY;
-    cls();
+    full_clear();
     if (num_players == 1u) {
         solo_draw_static_ui();
         solo_draw_life();
@@ -418,7 +451,7 @@ static void enter_play_state(void) {
 
 static void return_to_title(void) {
     game_state = STATE_TITLE;
-    cls();
+    full_clear();
     title_draw();
 }
 
@@ -433,6 +466,7 @@ void main(void) {
     if (_cpu == CGB_TYPE) {
         set_bkg_palette(0u, 5u, ui_palettes);
     }
+    clear_attributes();
 
     title_draw();
 
@@ -451,7 +485,7 @@ void main(void) {
             }
             if (pressed & (J_A | J_START)) {
                 game_state = STATE_AVATAR_P1;
-                cls();
+                full_clear();
                 avatar_draw(0u);
             }
         } else if (game_state == STATE_AVATAR_P1 || game_state == STATE_AVATAR_P2) {
@@ -467,7 +501,7 @@ void main(void) {
                 num_players = (title_selection == 0u) ? 1u : 2u;
                 if (p == 0u && num_players == 2u) {
                     game_state = STATE_AVATAR_P2;
-                    cls();
+                    full_clear();
                     avatar_draw(1u);
                 } else {
                     enter_play_state();
