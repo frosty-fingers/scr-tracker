@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <gbdk/console.h>
+#include <rand.h>
 
 #include "elements.h"
 #include "avatars.h"
@@ -49,9 +50,22 @@ static uint8_t avatar_choice[2] = { 0u, 0u };
 #define STATE_AVATAR_P2  2u
 #define STATE_PLAY       3u
 #define STATE_SETTINGS   4u
+#define STATE_DICE       5u
 static uint8_t game_state = STATE_TITLE;
 static uint8_t title_selection = 0u;  // 0 = 1 player, 1 = 2 player, 2 = settings
 static uint8_t theme_choice = 0u;
+
+// Dice/coin roller - opened during a match with SELECT+UP (see the
+// STATE_PLAY input handling), since every single button is already
+// spoken for during gameplay. dice_result of 0 means "not rolled yet".
+#define DICE_D20         0u
+#define DICE_D6          1u
+#define DICE_COIN        2u
+#define DICE_TYPE_COUNT  3u
+static const uint8_t dice_sides[DICE_TYPE_COUNT] = { 20u, 6u, 2u };
+static const char *dice_type_label[DICE_TYPE_COUNT] = { "D20", "D6", "COIN" };
+static uint8_t dice_type = 0u;
+static uint8_t dice_result = 0u;
 
 // How long (in frames, ~60/sec) A/B must be held before auto-repeat
 // kicks in, and how many frames between each repeated step after that.
@@ -89,6 +103,18 @@ static void apply_theme(void) {
         return;
     }
     set_bkg_palette(0u, 5u, theme_palettes[theme_choice]);
+}
+
+// Rolls a die with the given number of sides (2 for a coin flip),
+// returning 1..sides. Reseeds from DIV_REG (the free-running timer
+// register) on every roll rather than once at startup - DIV changes
+// constantly and real human button-press timing is unpredictable at
+// that resolution, so this is a simple, reliable way to get a fresh,
+// non-repeating result each time without needing a higher-quality RNG
+// than this hardware actually has.
+static uint8_t dice_roll(uint8_t sides) {
+    initrand(DIV_REG);
+    return ((uint8_t)rand() % sides) + 1u;
 }
 
 // ===================== console / graphics setup ========================
@@ -270,6 +296,50 @@ static void avatar_draw(uint8_t p) {
     printf("<>PICK A:OK");
 }
 
+#define DICE_TYPE_COL         3u
+#define DICE_TYPE_ARROW_LEFT  1u
+#define DICE_TYPE_ARROW_RIGHT 19u
+#define DICE_RESULT_COL       1u
+#define DICE_ROW_TITLE        2u
+#define DICE_ROW_TYPE         6u
+#define DICE_ROW_RESULT       10u
+#define DICE_ROW_HINT1        14u
+#define DICE_ROW_HINT2        15u
+
+static void dice_draw(void) {
+    gotoxy(4u, DICE_ROW_TITLE);
+    printf("DICE / COIN");
+
+    gotoxy(DICE_TYPE_ARROW_LEFT, DICE_ROW_TYPE);
+    printf("<");
+    gotoxy(DICE_TYPE_ARROW_RIGHT, DICE_ROW_TYPE);
+    printf(">");
+
+    // Clear the type-name field first - "D20"/"D6"/"COIN" differ in
+    // length (same reasoning as the avatar-name-clearing fix above).
+    gotoxy(DICE_TYPE_COL, DICE_ROW_TYPE);
+    printf("                ");  // 16 spaces
+    gotoxy(DICE_TYPE_COL, DICE_ROW_TYPE);
+    printf(dice_type_label[dice_type]);
+
+    // Same for the result field.
+    gotoxy(DICE_RESULT_COL, DICE_ROW_RESULT);
+    printf("                  ");  // 18 spaces
+    gotoxy(DICE_RESULT_COL, DICE_ROW_RESULT);
+    if (dice_result == 0u) {
+        printf("PRESS A TO ROLL");
+    } else if (dice_type == DICE_COIN) {
+        printf((dice_result == 1u) ? "HEADS" : "TAILS");
+    } else {
+        printf("RESULT: %u", (unsigned int)dice_result);
+    }
+
+    gotoxy(1u, DICE_ROW_HINT1);
+    printf("<>TYPE A:ROLL");
+    gotoxy(1u, DICE_ROW_HINT2);
+    printf("B:BACK");
+}
+
 // ===================== 1-player UI (unchanged layout) ====================
 
 #define P1_COL_CURSOR     0u
@@ -282,6 +352,7 @@ static void avatar_draw(uint8_t p) {
 #define P1_ROW_DEATHDOOR  5u
 #define P1_ROW_HINT1      13u
 #define P1_ROW_HINT2      14u
+#define P1_ROW_HINT3      15u
 
 static const uint8_t p1_element_row[4] = { 7u, 8u, 9u, 10u };
 
@@ -306,6 +377,8 @@ static void solo_draw_static_ui(void) {
     printf("<>SEL A:+ B:-");
     gotoxy(0u, P1_ROW_HINT2);
     printf("START:RESET");
+    gotoxy(0u, P1_ROW_HINT3);
+    printf("SEL+UP:DICE");
 }
 
 static void solo_draw_life(void) {
@@ -364,6 +437,7 @@ static void solo_redraw_active(void) {
 #define TWO_ROW_ELEM0   5u
 #define TWO_ROW_HINT1   11u
 #define TWO_ROW_HINT2   12u
+#define TWO_ROW_HINT3   13u
 
 static const uint8_t two_life_cursor_col[2] = { 0u, 19u };
 static const uint8_t two_life_label_col[2]  = { 1u, 15u };
@@ -385,6 +459,8 @@ static void two_draw_static_ui(void) {
     printf("SEL:SWAP <>A+B-");
     gotoxy(1u, TWO_ROW_HINT2);
     printf("START:RESET(cur)");
+    gotoxy(1u, TWO_ROW_HINT3);
+    printf("SEL+UP:DICE");
 
     for (i = 0u; i < 4u; i++) {
         paint_row(two_elem_attr_col[0], TWO_ROW_ELEM0 + i, MAX_SYMBOLS, i + 1u);
@@ -481,11 +557,11 @@ static void redraw_life_and_elements_current(void) {
     }
 }
 
-static void enter_play_state(void) {
-    current_player = 0u;
-    reset_player(0u);
-    reset_player(1u);
-    game_state = STATE_PLAY;
+// Redraws the current play state (whichever mode is active) from
+// scratch, without touching any counter values. Used both when first
+// entering play and when returning to it from a sub-screen (like the
+// dice roller) that took over the whole display.
+static void redraw_play_screen(void) {
     full_clear();
     if (num_players == 1u) {
         solo_draw_static_ui();
@@ -499,6 +575,14 @@ static void enter_play_state(void) {
         two_draw_elements(0u);
         two_draw_elements(1u);
     }
+}
+
+static void enter_play_state(void) {
+    current_player = 0u;
+    reset_player(0u);
+    reset_player(1u);
+    game_state = STATE_PLAY;
+    redraw_play_screen();
 }
 
 static void return_to_title(void) {
@@ -588,14 +672,39 @@ void main(void) {
                     enter_play_state();
                 }
             }
+        } else if (game_state == STATE_DICE) {
+            if (pressed & J_LEFT) {
+                dice_type = (dice_type == 0u) ? (DICE_TYPE_COUNT - 1u) : (dice_type - 1u);
+                dice_result = 0u;
+                dice_draw();
+            } else if (pressed & J_RIGHT) {
+                dice_type = (dice_type == DICE_TYPE_COUNT - 1u) ? 0u : (dice_type + 1u);
+                dice_result = 0u;
+                dice_draw();
+            } else if (pressed & J_A) {
+                dice_result = dice_roll(dice_sides[dice_type]);
+                dice_draw();
+            } else if (pressed & J_B) {
+                game_state = STATE_PLAY;
+                redraw_play_screen();
+            }
         } else {
             // STATE_PLAY. START+SELECT together (in either press order)
-            // returns to the title screen; plain START alone resets
-            // the currently focused player's counters instead.
+            // returns to the title screen; SELECT+UP (either order)
+            // opens the dice/coin roller; plain START alone resets the
+            // currently focused player's counters.
             if ((pressed & J_START) && (keys & J_SELECT)) {
                 return_to_title();
             } else if ((pressed & J_SELECT) && (keys & J_START)) {
                 return_to_title();
+            } else if ((pressed & J_UP) && (keys & J_SELECT)) {
+                game_state = STATE_DICE;
+                full_clear();
+                dice_draw();
+            } else if ((pressed & J_SELECT) && (keys & J_UP)) {
+                game_state = STATE_DICE;
+                full_clear();
+                dice_draw();
             } else if (pressed & J_START) {
                 reset_player(current_player);
                 redraw_life_and_elements_current();
