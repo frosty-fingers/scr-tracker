@@ -35,30 +35,35 @@ static const uint8_t element_tiles[4u * 16u] = {
 // All 5 CGB background palettes used in the game, loaded together in
 // one set_bkg_palette() call starting at slot 0:
 //   slot 0        - default text/UI (used by every printf/gotoxy call
-//                   that doesn't get a custom attribute) - brown/grey
+//                   that doesn't get a custom attribute) - grey
 //                   background, gold ink.
 //   slots 1-4     - one per element (AIR/EARTH/FIRE/WATER), applied via
 //                   per-tile attributes in paint_row() (main.c). Same
-//                   brown/grey background as slot 0 so icons blend in
+//                   grey background as slot 0 so icons blend in
 //                   seamlessly; only color 3 differs (each element's
 //                   own outline color), since the icons are hollow and
 //                   never use color 1 or 2.
 //
-// IMPORTANT: slot 0 must never be reused for an element palette (that
-// was the bug that made all text turn yellow - AIR's palette got
-// loaded into the slot the font uses by default). Elements start at
-// slot 1, not slot 0.
-#define BG_R  13
+// IMPORTANT: slot 0 must never be reused for an element palette (see
+// docs/GOTCHAS.md - that was the bug that made all text turn yellow).
+// Elements start at slot 1, not slot 0.
+//
+// Background is a neutral grey rather than brown specifically so it
+// doesn't compete with EARTH's brown - see docs/GOTCHAS.md for the
+// separate (now fixed) bug where leftover per-tile colors from a
+// previous screen could bleed through if this ever looked wrong after
+// a screen transition.
+#define BG_R  11
 #define BG_G  11
-#define BG_B  8
+#define BG_B  13
 
 static const palette_color_t ui_palettes[5u * 4u] = {
-    // slot 0 - default text: brown/grey background, gold ink
+    // slot 0 - default text: grey background, gold ink
     RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(28,22,6),
-    // slot 1 - AIR: light grey (kept distinct from the gold text color)
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(22,22,22),
-    // slot 2 - EARTH: green
-    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(4,20,4),
+    // slot 1 - AIR: light grey (kept distinct from both the background and the gold text)
+    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(23,23,25),
+    // slot 2 - EARTH: brown
+    RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(18,11,4),
     // slot 3 - FIRE: red
     RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(BG_R,BG_G,BG_B), RGB(24,4,4),
     // slot 4 - WATER: blue
