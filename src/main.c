@@ -6,11 +6,13 @@
 #include <gbdk/console.h>
 
 #include "elements.h"
+#include "avatars.h"
 
 // NOTE: this project has no save data, so save.h (still present in
 // src/) is intentionally not included here. Sound uses direct PSG
 // register writes (play_tone() below), not the music.h/hUGEDriver
-// system - music.h is still unused.
+// system - music.h is still unused. Background music is intentionally
+// out of scope right now (see docs/STATUS.md).
 
 #define LIFE_START   20u
 #define LIFE_MIN     0u
@@ -28,9 +30,10 @@
 #define MAX_SYMBOLS   8u
 
 // counters/active are indexed by player (0 or 1). In 1-player mode
-// only index 0 is ever used. Palette slot order matches element order:
-// 0 = AIR, 1 = EARTH, 2 = FIRE, 3 = WATER (see element_palettes in
-// elements.h) - icon_tile[] below follows the same order.
+// only index 0 is ever used. Palette slot order matches element order
+// (see ui_palettes in elements.h): element index 0=AIR,1=EARTH,2=FIRE,
+// 3=WATER maps to CGB palette slot index+1 (slot 0 is reserved for
+// default text - see the big comment in elements.h about that bug).
 static const uint8_t icon_tile[4]          = { TILE_AIR, TILE_EARTH, TILE_FIRE, TILE_WATER };
 static const char *element_label_word[4]   = { "AIR   ", "EARTH ", "FIRE  ", "WATER " };
 static const char *element_label_letter[4] = { "A", "E", "F", "W" };
@@ -39,9 +42,12 @@ static uint8_t counters[2][COUNTER_COUNT];
 static uint8_t active[2];
 static uint8_t current_player = 0u;
 static uint8_t num_players = 1u;
+static uint8_t avatar_choice[2] = { 0u, 0u };
 
-#define STATE_TITLE  0u
-#define STATE_PLAY   1u
+#define STATE_TITLE      0u
+#define STATE_AVATAR_P1  1u
+#define STATE_AVATAR_P2  2u
+#define STATE_PLAY       3u
 static uint8_t game_state = STATE_TITLE;
 static uint8_t title_selection = 0u;  // 0 = 1 player, 1 = 2 player
 
@@ -62,8 +68,6 @@ static void init_sound(void) {
     NR51_REG = 0x11u;
 }
 
-// Plays a short channel-1 "blip" that fades out quickly - a generic
-// placeholder menu ding for +/- feedback.
 static void play_tone(uint16_t freq_reg) {
     NR10_REG = 0x00u;
     NR11_REG = 0x80u;
@@ -83,8 +87,8 @@ static void prime_console(void) {
     printf(" ");
 }
 
-// Sets a solid color (palette slot 0-3, matching element order) across
-// a horizontal run of background tiles. CGB only - no-op on DMG.
+// Sets a color (CGB palette slot, 1-4 for elements - see elements.h)
+// across a horizontal run of background tiles. CGB only - no-op on DMG.
 static void paint_row(uint8_t col, uint8_t row, uint8_t w, uint8_t pal) {
     uint8_t attr[MAX_SYMBOLS];
     uint8_t i;
@@ -107,8 +111,6 @@ static uint8_t counter_is_locked(uint8_t p) {
     return (active[p] == COUNTER_LIFE) && (counters[p][COUNTER_LIFE] == LIFE_MIN);
 }
 
-// Applies +1/-1 to player p's active counter. Returns 1 if the value
-// actually changed, 0 if locked or already at a limit.
 static uint8_t apply_delta(uint8_t p, int8_t delta) {
     uint8_t value;
     uint8_t min;
@@ -147,15 +149,11 @@ static void reset_player(uint8_t p) {
     active[p] = COUNTER_LIFE;
 }
 
-// Prints a counter value left-aligned followed by a blanking space, so
-// a value that shrinks by a digit doesn't leave a stale digit behind
-// (see docs/GOTCHAS.md - GBDK's printf doesn't reliably honor width
-// specifiers like "%2u").
 static void print_value(uint8_t value) {
     printf("%u ", (unsigned int)value);
 }
 
-// ===================== title screen ======================================
+// ===================== title & avatar select screens ====================
 
 static void title_draw(void) {
     gotoxy(6u, 2u);
@@ -172,13 +170,19 @@ static void title_draw(void) {
     printf("<>SELECT A:START");
 }
 
-static void title_start_game(void) {
-    num_players = (title_selection == 0u) ? 1u : 2u;
-    current_player = 0u;
-    reset_player(0u);
-    reset_player(1u);
-    game_state = STATE_PLAY;
-    cls();
+static void avatar_draw(uint8_t p) {
+    gotoxy(4u, 6u);
+    printf((p == 0u) ? "CHOOSE P1" : "CHOOSE P2");
+
+    gotoxy(7u, 9u);
+    printf("<");
+    gotoxy(9u, 9u);
+    printf(avatar_codes[avatar_choice[p]]);
+    gotoxy(13u, 9u);
+    printf(">");
+
+    gotoxy(1u, 15u);
+    printf("<>PICK A:OK");
 }
 
 // ===================== 1-player UI (unchanged layout) ====================
@@ -210,7 +214,7 @@ static void solo_draw_static_ui(void) {
     for (i = 0u; i < 4u; i++) {
         gotoxy(P1_COL_LABEL, p1_element_row[i]);
         printf(element_label_word[i]);
-        paint_row(P1_COL_SYMBOLS, p1_element_row[i], MAX_SYMBOLS, i);
+        paint_row(P1_COL_SYMBOLS, p1_element_row[i], MAX_SYMBOLS, i + 1u);
     }
 
     gotoxy(0u, P1_ROW_HINT1);
@@ -268,17 +272,11 @@ static void solo_redraw_active(void) {
 }
 
 // ===================== 2-player UI (condensed, mirrored) =================
-//
-// Screen is split into a left half (cols 0-9, player 0) and a right
-// half (cols 10-19, player 1). Player 1's side is a mirror image of
-// player 0's: cursor/label sit on the outer edge (col 19 instead of
-// col 0) and symbols grow leftward from the label instead of
-// rightward, so the two halves visually face each other.
 
 #define TWO_ROW_HEADER  0u
 #define TWO_ROW_LIFE    2u
 #define TWO_ROW_DOOR    3u
-#define TWO_ROW_ELEM0   5u   // elements at rows 5,6,7,8 (AIR/EARTH/FIRE/WATER)
+#define TWO_ROW_ELEM0   5u
 #define TWO_ROW_HINT1   11u
 #define TWO_ROW_HINT2   12u
 
@@ -286,10 +284,14 @@ static const uint8_t two_life_cursor_col[2] = { 0u, 19u };
 static const uint8_t two_life_label_col[2]  = { 1u, 15u };
 static const uint8_t two_life_value_col[2]  = { 6u, 11u };
 static const uint8_t two_door_col[2]        = { 1u, 15u };
-static const uint8_t two_header_col[2]      = { 0u, 16u };
+static const uint8_t two_header_col[2]      = { 0u, 15u };
 static const uint8_t two_elem_cursor_col[2] = { 0u, 19u };
 static const uint8_t two_elem_label_col[2]  = { 1u, 18u };
-static const uint8_t two_elem_attr_col[2]   = { 2u, 10u };  // leftmost col of the 8-cell symbol block
+static const uint8_t two_elem_attr_col[2]   = { 2u, 10u };
+
+// Cursor arrow points toward the middle of the screen on each side -
+// right for P1 (left half), left for P2 (right half).
+static const char *two_cursor_char[2] = { ">", "<" };
 
 static void two_draw_static_ui(void) {
     uint8_t i;
@@ -300,21 +302,26 @@ static void two_draw_static_ui(void) {
     printf("START:RESET(cur)");
 
     for (i = 0u; i < 4u; i++) {
-        paint_row(two_elem_attr_col[0], TWO_ROW_ELEM0 + i, MAX_SYMBOLS, i);
-        paint_row(two_elem_attr_col[1], TWO_ROW_ELEM0 + i, MAX_SYMBOLS, i);
+        paint_row(two_elem_attr_col[0], TWO_ROW_ELEM0 + i, MAX_SYMBOLS, i + 1u);
+        paint_row(two_elem_attr_col[1], TWO_ROW_ELEM0 + i, MAX_SYMBOLS, i + 1u);
     }
 }
 
 static void two_draw_header(void) {
     gotoxy(two_header_col[0], TWO_ROW_HEADER);
-    printf((current_player == 0u) ? "[P1]" : " P1 ");
+    printf((current_player == 0u) ? "[" : " ");
+    printf(avatar_codes[avatar_choice[0]]);
+    printf((current_player == 0u) ? "]" : " ");
+
     gotoxy(two_header_col[1], TWO_ROW_HEADER);
-    printf((current_player == 1u) ? "[P2]" : " P2 ");
+    printf((current_player == 1u) ? "[" : " ");
+    printf(avatar_codes[avatar_choice[1]]);
+    printf((current_player == 1u) ? "]" : " ");
 }
 
 static void two_draw_life(uint8_t p) {
     gotoxy(two_life_cursor_col[p], TWO_ROW_LIFE);
-    printf((active[p] == COUNTER_LIFE) ? ">" : " ");
+    printf((active[p] == COUNTER_LIFE) ? two_cursor_char[p] : " ");
 
     gotoxy(two_life_label_col[p], TWO_ROW_LIFE);
     printf("LIFE");
@@ -351,7 +358,7 @@ static void two_draw_element(uint8_t p, uint8_t idx) {
     printf(element_label_letter[idx]);
 
     gotoxy(two_elem_cursor_col[p], row);
-    printf((active[p] == COUNTER_AIR + idx) ? ">" : " ");
+    printf((active[p] == COUNTER_AIR + idx) ? two_cursor_char[p] : " ");
 }
 
 static void two_draw_elements(uint8_t p) {
@@ -389,20 +396,42 @@ static void redraw_life_and_elements_current(void) {
     }
 }
 
+static void enter_play_state(void) {
+    current_player = 0u;
+    reset_player(0u);
+    reset_player(1u);
+    game_state = STATE_PLAY;
+    cls();
+    if (num_players == 1u) {
+        solo_draw_static_ui();
+        solo_draw_life();
+        solo_draw_elements();
+    } else {
+        two_draw_static_ui();
+        two_draw_header();
+        two_draw_life(0u);
+        two_draw_life(1u);
+        two_draw_elements(0u);
+        two_draw_elements(1u);
+    }
+}
+
+static void return_to_title(void) {
+    game_state = STATE_TITLE;
+    cls();
+    title_draw();
+}
+
 void main(void) {
     uint8_t prev_keys = 0u;
     uint8_t keys, pressed;
     uint8_t a_hold = 0u, b_hold = 0u;
 
-    if (_cpu == CGB_TYPE) {
-        set_default_palette();
-    }
-
     init_sound();
     prime_console();
     set_bkg_data(TILE_FIRST_ELEMENT, 4u, element_tiles);
     if (_cpu == CGB_TYPE) {
-        set_bkg_palette(0u, 4u, element_palettes);
+        set_bkg_palette(0u, 5u, ui_palettes);
     }
 
     title_draw();
@@ -421,81 +450,97 @@ void main(void) {
                 title_draw();
             }
             if (pressed & (J_A | J_START)) {
-                title_start_game();
-                if (num_players == 1u) {
-                    solo_draw_static_ui();
-                    solo_draw_life();
-                    solo_draw_elements();
+                game_state = STATE_AVATAR_P1;
+                cls();
+                avatar_draw(0u);
+            }
+        } else if (game_state == STATE_AVATAR_P1 || game_state == STATE_AVATAR_P2) {
+            uint8_t p = (game_state == STATE_AVATAR_P1) ? 0u : 1u;
+
+            if (pressed & J_LEFT) {
+                avatar_choice[p] = (avatar_choice[p] == 0u) ? (AVATAR_COUNT - 1u) : (avatar_choice[p] - 1u);
+                avatar_draw(p);
+            } else if (pressed & J_RIGHT) {
+                avatar_choice[p] = (avatar_choice[p] == AVATAR_COUNT - 1u) ? 0u : (avatar_choice[p] + 1u);
+                avatar_draw(p);
+            } else if (pressed & (J_A | J_START)) {
+                num_players = (title_selection == 0u) ? 1u : 2u;
+                if (p == 0u && num_players == 2u) {
+                    game_state = STATE_AVATAR_P2;
+                    cls();
+                    avatar_draw(1u);
                 } else {
-                    two_draw_static_ui();
-                    two_draw_header();
-                    two_draw_life(0u);
-                    two_draw_life(1u);
-                    two_draw_elements(0u);
-                    two_draw_elements(1u);
+                    enter_play_state();
                 }
             }
         } else {
-            if (num_players == 2u && (pressed & J_SELECT)) {
+            // STATE_PLAY. START+SELECT together (in either press order)
+            // returns to the title screen; plain START alone resets
+            // the currently focused player's counters instead.
+            if ((pressed & J_START) && (keys & J_SELECT)) {
+                return_to_title();
+            } else if ((pressed & J_SELECT) && (keys & J_START)) {
+                return_to_title();
+            } else if (pressed & J_START) {
+                reset_player(current_player);
+                redraw_life_and_elements_current();
+            } else if (num_players == 2u && (pressed & J_SELECT)) {
                 current_player = 1u - current_player;
                 two_draw_header();
             }
 
-            if (pressed & J_LEFT) {
-                active[current_player] = (active[current_player] == COUNTER_LIFE)
-                    ? (COUNTER_COUNT - 1u) : (active[current_player] - 1u);
-                redraw_life_and_elements_current();
-            } else if (pressed & J_RIGHT) {
-                active[current_player] = (active[current_player] == COUNTER_COUNT - 1u)
-                    ? COUNTER_LIFE : (active[current_player] + 1u);
-                redraw_life_and_elements_current();
-            } else if (pressed & J_START) {
-                reset_player(current_player);
-                redraw_life_and_elements_current();
-            }
+            if (game_state == STATE_PLAY) {
+                if (pressed & J_LEFT) {
+                    active[current_player] = (active[current_player] == COUNTER_LIFE)
+                        ? (COUNTER_COUNT - 1u) : (active[current_player] - 1u);
+                    redraw_life_and_elements_current();
+                } else if (pressed & J_RIGHT) {
+                    active[current_player] = (active[current_player] == COUNTER_COUNT - 1u)
+                        ? COUNTER_LIFE : (active[current_player] + 1u);
+                    redraw_life_and_elements_current();
+                }
 
-            // A: +1 on press, then auto-repeat while held.
-            if (keys & J_A) {
-                if (pressed & J_A) {
-                    if (apply_delta(current_player, 1)) {
-                        redraw_active_current();
-                        play_tone(SND_FREQ_INC);
-                    }
-                    a_hold = 0u;
-                } else {
-                    a_hold++;
-                    if (a_hold >= REPEAT_DELAY &&
-                        ((a_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
+                if (keys & J_A) {
+                    if (pressed & J_A) {
                         if (apply_delta(current_player, 1)) {
                             redraw_active_current();
                             play_tone(SND_FREQ_INC);
                         }
+                        a_hold = 0u;
+                    } else {
+                        a_hold++;
+                        if (a_hold >= REPEAT_DELAY &&
+                            ((a_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
+                            if (apply_delta(current_player, 1)) {
+                                redraw_active_current();
+                                play_tone(SND_FREQ_INC);
+                            }
+                        }
                     }
-                }
-            } else {
-                a_hold = 0u;
-            }
-
-            // B: -1 on press, then auto-repeat while held.
-            if (keys & J_B) {
-                if (pressed & J_B) {
-                    if (apply_delta(current_player, -1)) {
-                        redraw_active_current();
-                        play_tone(SND_FREQ_DEC);
-                    }
-                    b_hold = 0u;
                 } else {
-                    b_hold++;
-                    if (b_hold >= REPEAT_DELAY &&
-                        ((b_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
+                    a_hold = 0u;
+                }
+
+                if (keys & J_B) {
+                    if (pressed & J_B) {
                         if (apply_delta(current_player, -1)) {
                             redraw_active_current();
                             play_tone(SND_FREQ_DEC);
                         }
+                        b_hold = 0u;
+                    } else {
+                        b_hold++;
+                        if (b_hold >= REPEAT_DELAY &&
+                            ((b_hold - REPEAT_DELAY) % REPEAT_INTERVAL) == 0u) {
+                            if (apply_delta(current_player, -1)) {
+                                redraw_active_current();
+                                play_tone(SND_FREQ_DEC);
+                            }
+                        }
                     }
+                } else {
+                    b_hold = 0u;
                 }
-            } else {
-                b_hold = 0u;
             }
         }
 
