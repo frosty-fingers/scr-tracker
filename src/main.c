@@ -541,7 +541,13 @@ void main(void) {
                     game_state = STATE_SETTINGS;
                     full_clear();
                     settings_draw();
+                } else if (title_selection == 0u) {
+                    // 1-player: it's obviously just "you" - no avatar
+                    // select needed, go straight to play.
+                    num_players = 1u;
+                    enter_play_state();
                 } else {
+                    num_players = 2u;
                     game_state = STATE_AVATAR_P1;
                     full_clear();
                     avatar_draw(0u);
@@ -571,8 +577,10 @@ void main(void) {
                 avatar_choice[p] = (avatar_choice[p] == AVATAR_COUNT - 1u) ? 0u : (avatar_choice[p] + 1u);
                 avatar_draw(p);
             } else if (pressed & (J_A | J_START)) {
-                num_players = (title_selection == 0u) ? 1u : 2u;
-                if (p == 0u && num_players == 2u) {
+                // Avatar select is only ever reached in 2-player mode
+                // now (1-player skips straight to play) - so after P1
+                // confirms, always go on to P2 next.
+                if (p == 0u) {
                     game_state = STATE_AVATAR_P2;
                     full_clear();
                     avatar_draw(1u);
