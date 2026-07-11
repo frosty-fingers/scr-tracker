@@ -37,21 +37,21 @@
 #define AVATAR_NAME_MAXLEN  18u
 
 static const char *avatar_names[AVATAR_COUNT] = {
-    "Wanderer",
-    "Trickster",
-    "Sentinel",
-    "Voyager",
-    "Outlander",
+    "Sorcerer",
+    "Geomancer",
+    "Sparkmage",
+    "Waveshaper",
+    "Flamecaller",
     "Pathfinder",
 };
 
 static const char *avatar_codes[AVATAR_COUNT] = {
-    "WND",
-    "TRK",
-    "SNT",
-    "VOY",
-    "OUT",
-    "PTH",
+    "SOR",
+    "GEO",
+    "SPA",
+    "WAV",
+    "FLA",
+    "PAT",
 };
 
 #endif // AVATARS_H
