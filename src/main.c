@@ -31,7 +31,7 @@
 
 // counters/active are indexed by player (0 or 1). In 1-player mode
 // only index 0 is ever used. Palette slot order matches element order
-// (see ui_palettes in elements.h): element index 0=AIR,1=EARTH,2=FIRE,
+// (see theme_palettes in elements.h): element index 0=AIR,1=EARTH,2=FIRE,
 // 3=WATER maps to CGB palette slot index+1 (slot 0 is reserved for
 // default text - see the big comment in elements.h about that bug).
 static const uint8_t icon_tile[4]          = { TILE_AIR, TILE_EARTH, TILE_FIRE, TILE_WATER };
@@ -48,8 +48,10 @@ static uint8_t avatar_choice[2] = { 0u, 0u };
 #define STATE_AVATAR_P1  1u
 #define STATE_AVATAR_P2  2u
 #define STATE_PLAY       3u
+#define STATE_SETTINGS   4u
 static uint8_t game_state = STATE_TITLE;
-static uint8_t title_selection = 0u;  // 0 = 1 player, 1 = 2 player
+static uint8_t title_selection = 0u;  // 0 = 1 player, 1 = 2 player, 2 = settings
+static uint8_t theme_choice = 0u;
 
 // How long (in frames, ~60/sec) A/B must be held before auto-repeat
 // kicks in, and how many frames between each repeated step after that.
@@ -74,6 +76,19 @@ static void play_tone(uint16_t freq_reg) {
     NR12_REG = 0xF2u;
     NR13_REG = freq_reg & 0xFFu;
     NR14_REG = 0x80u | ((freq_reg >> 8u) & 0x07u);
+}
+
+// Loads the currently chosen theme's palettes (see theme_palettes in
+// elements.h). CGB only - no-op on DMG. Safe to call any time,
+// including live while the settings screen is open, since palette RAM
+// can be updated whenever - no need to be off-screen/off-display for
+// this one (unlike the tile-placement ordering rule in
+// prime_console()'s comment).
+static void apply_theme(void) {
+    if (_cpu != CGB_TYPE) {
+        return;
+    }
+    set_bkg_palette(0u, 5u, theme_palettes[theme_choice]);
 }
 
 // ===================== console / graphics setup ========================
@@ -198,21 +213,58 @@ static void title_draw(void) {
     printf((title_selection == 0u) ? ">1 PLAYER" : " 1 PLAYER");
     gotoxy(4u, 9u);
     printf((title_selection == 1u) ? ">2 PLAYER" : " 2 PLAYER");
+    gotoxy(4u, 11u);
+    printf((title_selection == 2u) ? ">SETTINGS" : " SETTINGS");
 
     gotoxy(1u, 15u);
     printf("<>SELECT A:START");
 }
 
+#define SETTINGS_NAME_COL         1u
+#define SETTINGS_ARROW_LEFT_COL   0u
+#define SETTINGS_ARROW_RIGHT_COL  19u
+
+static void settings_draw(void) {
+    gotoxy(5u, 6u);
+    printf("THEME");
+
+    gotoxy(SETTINGS_ARROW_LEFT_COL, 9u);
+    printf("<");
+    gotoxy(SETTINGS_ARROW_RIGHT_COL, 9u);
+    printf(">");
+
+    // Clear the full name field before printing - theme names vary in
+    // length (see docs/GOTCHAS.md's digit/name-clearing pattern).
+    gotoxy(SETTINGS_NAME_COL, 9u);
+    printf("                  ");  // 18 spaces
+    gotoxy(SETTINGS_NAME_COL, 9u);
+    printf(theme_names[theme_choice]);
+
+    gotoxy(1u, 15u);
+    printf("<>PICK B:BACK");
+}
+
+#define AVATAR_NAME_COL   1u
+#define AVATAR_ARROW_LEFT_COL   0u
+#define AVATAR_ARROW_RIGHT_COL  19u
+
 static void avatar_draw(uint8_t p) {
     gotoxy(4u, 6u);
     printf((p == 0u) ? "CHOOSE P1" : "CHOOSE P2");
 
-    gotoxy(7u, 9u);
+    gotoxy(AVATAR_ARROW_LEFT_COL, 9u);
     printf("<");
-    gotoxy(9u, 9u);
-    printf(avatar_codes[avatar_choice[p]]);
-    gotoxy(13u, 9u);
+    gotoxy(AVATAR_ARROW_RIGHT_COL, 9u);
     printf(">");
+
+    // Clear the full name field before printing the new name - names
+    // vary in length, so without this a shorter name would leave
+    // stale characters from a longer previous one (same issue as the
+    // digit-clearing fix - see docs/GOTCHAS.md).
+    gotoxy(AVATAR_NAME_COL, 9u);
+    printf("                  ");  // AVATAR_NAME_MAXLEN (18) spaces
+    gotoxy(AVATAR_NAME_COL, 9u);
+    printf(avatar_names[avatar_choice[p]]);
 
     gotoxy(1u, 15u);
     printf("<>PICK A:OK");
@@ -463,9 +515,7 @@ void main(void) {
     init_sound();
     prime_console();
     set_bkg_data(TILE_FIRST_ELEMENT, 4u, element_tiles);
-    if (_cpu == CGB_TYPE) {
-        set_bkg_palette(0u, 5u, ui_palettes);
-    }
+    apply_theme();
     clear_attributes();
 
     title_draw();
@@ -479,14 +529,37 @@ void main(void) {
         prev_keys = keys;
 
         if (game_state == STATE_TITLE) {
-            if (pressed & (J_UP | J_DOWN)) {
-                title_selection = 1u - title_selection;
+            if (pressed & J_DOWN) {
+                title_selection = (title_selection == 2u) ? 0u : (title_selection + 1u);
+                title_draw();
+            } else if (pressed & J_UP) {
+                title_selection = (title_selection == 0u) ? 2u : (title_selection - 1u);
                 title_draw();
             }
             if (pressed & (J_A | J_START)) {
-                game_state = STATE_AVATAR_P1;
+                if (title_selection == 2u) {
+                    game_state = STATE_SETTINGS;
+                    full_clear();
+                    settings_draw();
+                } else {
+                    game_state = STATE_AVATAR_P1;
+                    full_clear();
+                    avatar_draw(0u);
+                }
+            }
+        } else if (game_state == STATE_SETTINGS) {
+            if (pressed & J_LEFT) {
+                theme_choice = (theme_choice == 0u) ? (THEME_COUNT - 1u) : (theme_choice - 1u);
+                apply_theme();
+                settings_draw();
+            } else if (pressed & J_RIGHT) {
+                theme_choice = (theme_choice == THEME_COUNT - 1u) ? 0u : (theme_choice + 1u);
+                apply_theme();
+                settings_draw();
+            } else if (pressed & (J_B | J_START)) {
+                game_state = STATE_TITLE;
                 full_clear();
-                avatar_draw(0u);
+                title_draw();
             }
         } else if (game_state == STATE_AVATAR_P1 || game_state == STATE_AVATAR_P2) {
             uint8_t p = (game_state == STATE_AVATAR_P1) ? 0u : 1u;
