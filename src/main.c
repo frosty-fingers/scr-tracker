@@ -275,7 +275,7 @@ static void title_draw(void) {
     printf((title_selection == 3u) ? ">GLOSSARY" : " GLOSSARY");
 
     gotoxy(1u, 15u);
-    printf("<>SELECT A:START");
+    printf("^VSELECT A:START");
 }
 
 #define SETTINGS_NAME_COL         1u
@@ -477,7 +477,7 @@ static void solo_draw_static_ui(void) {
     }
 
     gotoxy(0u, P1_ROW_HINT1);
-    printf("<>SEL A:+ B:-");
+    printf("^VSEL A:+ B:-");
     gotoxy(0u, P1_ROW_HINT2);
     printf("START:RESET");
     gotoxy(0u, P1_ROW_HINT3);
@@ -562,7 +562,7 @@ static void two_draw_static_ui(void) {
     uint8_t i;
 
     gotoxy(1u, TWO_ROW_HINT1);
-    printf("SEL:SWAP <>A+B-");
+    printf("SEL:SWAP ^VA+B-");
     gotoxy(1u, TWO_ROW_HINT2);
     printf("START:RESET(cur)");
     gotoxy(1u, TWO_ROW_HINT3);
@@ -866,11 +866,11 @@ void main(void) {
             }
 
             if (game_state == STATE_PLAY) {
-                if (pressed & J_LEFT) {
+                if (pressed & J_UP) {
                     active[current_player] = (active[current_player] == COUNTER_LIFE)
                         ? (COUNTER_COUNT - 1u) : (active[current_player] - 1u);
                     redraw_life_and_elements_current();
-                } else if (pressed & J_RIGHT) {
+                } else if (pressed & J_DOWN) {
                     active[current_player] = (active[current_player] == COUNTER_COUNT - 1u)
                         ? COUNTER_LIFE : (active[current_player] + 1u);
                     redraw_life_and_elements_current();
