@@ -34,7 +34,8 @@
 // won't need to change for that - only what gets drawn.
 
 #define AVATAR_COUNT        6u
-#define AVATAR_NAME_MAXLEN  18u
+#define AVATAR_NAME_MAXLEN  17u
+#define AVATAR_CODE_MAXLEN  3u
 
 static const char *avatar_names[AVATAR_COUNT] = {
     "Sorcerer",
