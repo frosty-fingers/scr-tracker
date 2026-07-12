@@ -8,6 +8,7 @@
 
 #include "elements.h"
 #include "avatars.h"
+#include "glossary.h"
 
 // NOTE: this project has no save data, so save.h (still present in
 // src/) is intentionally not included here. Sound uses direct PSG
@@ -45,15 +46,28 @@ static uint8_t current_player = 0u;
 static uint8_t num_players = 1u;
 static uint8_t avatar_choice[2] = { 0u, 0u };
 
-#define STATE_TITLE      0u
-#define STATE_AVATAR_P1  1u
-#define STATE_AVATAR_P2  2u
-#define STATE_PLAY       3u
-#define STATE_SETTINGS   4u
-#define STATE_DICE       5u
+#define STATE_TITLE           0u
+#define STATE_AVATAR_P1       1u
+#define STATE_AVATAR_P2       2u
+#define STATE_PLAY            3u
+#define STATE_SETTINGS        4u
+#define STATE_DICE            5u
+#define STATE_GLOSSARY_LIST   6u
+#define STATE_GLOSSARY_DETAIL 7u
 static uint8_t game_state = STATE_TITLE;
-static uint8_t title_selection = 0u;  // 0 = 1 player, 1 = 2 player, 2 = settings
+static uint8_t title_selection = 0u;  // 0=1 player,1=2 player,2=settings,3=glossary
 static uint8_t theme_choice = 0u;
+
+// Glossary - opened either from the title screen or, mid-match, with
+// SELECT+DOWN (DOWN was the last genuinely free input during play -
+// UP is already the dice roller's shortcut). glossary_return_state
+// remembers which of those two places B should go back to once the
+// person leaves the glossary entirely (from the list screen -
+// backing out of a single entry's detail view always just returns to
+// the list, regardless of how the glossary was opened).
+static uint8_t glossary_return_state = STATE_TITLE;
+static uint8_t glossary_cursor = 0u;
+static uint8_t glossary_scroll = 0u;
 
 // Dice/coin roller - opened during a match with SELECT+UP (see the
 // STATE_PLAY input handling), since every single button is already
@@ -235,12 +249,14 @@ static void title_draw(void) {
     gotoxy(4u, 3u);
     printf("LIFE TRACKER");
 
-    gotoxy(4u, 7u);
+    gotoxy(4u, 6u);
     printf((title_selection == 0u) ? ">1 PLAYER" : " 1 PLAYER");
-    gotoxy(4u, 9u);
+    gotoxy(4u, 8u);
     printf((title_selection == 1u) ? ">2 PLAYER" : " 2 PLAYER");
-    gotoxy(4u, 11u);
+    gotoxy(4u, 10u);
     printf((title_selection == 2u) ? ">SETTINGS" : " SETTINGS");
+    gotoxy(4u, 12u);
+    printf((title_selection == 3u) ? ">GLOSSARY" : " GLOSSARY");
 
     gotoxy(1u, 15u);
     printf("<>SELECT A:START");
@@ -337,6 +353,66 @@ static void dice_draw(void) {
     gotoxy(1u, DICE_ROW_HINT1);
     printf("<>TYPE A:ROLL");
     gotoxy(1u, DICE_ROW_HINT2);
+    printf("B:BACK");
+}
+
+#define GLOSSARY_LIST_ROW0      2u
+#define GLOSSARY_VISIBLE_ROWS   13u
+#define GLOSSARY_LIST_HINT_ROW1 16u
+
+// Keeps the scroll window containing whatever's currently selected -
+// works the same way whether the cursor moved one step or jumped
+// straight from the last entry to the first (wraparound), since it
+// just re-clamps the window around wherever the cursor ended up
+// rather than incrementing/decrementing the scroll position directly.
+static void glossary_clamp_scroll(void) {
+    if (glossary_cursor < glossary_scroll) {
+        glossary_scroll = glossary_cursor;
+    } else if (glossary_cursor >= glossary_scroll + GLOSSARY_VISIBLE_ROWS) {
+        glossary_scroll = glossary_cursor - GLOSSARY_VISIBLE_ROWS + 1u;
+    }
+}
+
+static void glossary_list_draw(void) {
+    uint8_t i;
+    uint8_t idx;
+    uint8_t row;
+
+    gotoxy(6u, 0u);
+    printf("GLOSSARY");
+
+    for (i = 0u; i < GLOSSARY_VISIBLE_ROWS; i++) {
+        row = GLOSSARY_LIST_ROW0 + i;
+        idx = i + glossary_scroll;
+
+        gotoxy(0u, row);
+        printf("                  ");  // clear the row first - see docs/GOTCHAS.md
+
+        if (idx < GLOSSARY_COUNT) {
+            gotoxy(0u, row);
+            printf((idx == glossary_cursor) ? ">" : " ");
+            printf(glossary_terms[idx]);
+        }
+    }
+
+    gotoxy(1u, GLOSSARY_LIST_HINT_ROW1);
+    printf("UP/DN A:VIEW B:BACK");
+}
+
+static void glossary_detail_draw(void) {
+    uint8_t i;
+
+    gotoxy(1u, 1u);
+    printf("                  ");
+    gotoxy(1u, 1u);
+    printf(glossary_terms[glossary_cursor]);
+
+    for (i = 0u; i < GLOSSARY_MAX_LINES; i++) {
+        gotoxy(1u, 4u + i);
+        printf(glossary_def_lines[glossary_cursor][i]);
+    }
+
+    gotoxy(1u, 16u);
     printf("B:BACK");
 }
 
@@ -614,10 +690,10 @@ void main(void) {
 
         if (game_state == STATE_TITLE) {
             if (pressed & J_DOWN) {
-                title_selection = (title_selection == 2u) ? 0u : (title_selection + 1u);
+                title_selection = (title_selection == 3u) ? 0u : (title_selection + 1u);
                 title_draw();
             } else if (pressed & J_UP) {
-                title_selection = (title_selection == 0u) ? 2u : (title_selection - 1u);
+                title_selection = (title_selection == 0u) ? 3u : (title_selection - 1u);
                 title_draw();
             }
             if (pressed & (J_A | J_START)) {
@@ -625,6 +701,11 @@ void main(void) {
                     game_state = STATE_SETTINGS;
                     full_clear();
                     settings_draw();
+                } else if (title_selection == 3u) {
+                    glossary_return_state = STATE_TITLE;
+                    game_state = STATE_GLOSSARY_LIST;
+                    full_clear();
+                    glossary_list_draw();
                 } else if (title_selection == 0u) {
                     // 1-player: it's obviously just "you" - no avatar
                     // select needed, go straight to play.
@@ -688,11 +769,40 @@ void main(void) {
                 game_state = STATE_PLAY;
                 redraw_play_screen();
             }
+        } else if (game_state == STATE_GLOSSARY_LIST) {
+            if (pressed & J_DOWN) {
+                glossary_cursor = (glossary_cursor == GLOSSARY_COUNT - 1u) ? 0u : (glossary_cursor + 1u);
+                glossary_clamp_scroll();
+                glossary_list_draw();
+            } else if (pressed & J_UP) {
+                glossary_cursor = (glossary_cursor == 0u) ? (GLOSSARY_COUNT - 1u) : (glossary_cursor - 1u);
+                glossary_clamp_scroll();
+                glossary_list_draw();
+            } else if (pressed & J_A) {
+                game_state = STATE_GLOSSARY_DETAIL;
+                full_clear();
+                glossary_detail_draw();
+            } else if (pressed & J_B) {
+                if (glossary_return_state == STATE_TITLE) {
+                    game_state = STATE_TITLE;
+                    full_clear();
+                    title_draw();
+                } else {
+                    game_state = STATE_PLAY;
+                    redraw_play_screen();
+                }
+            }
+        } else if (game_state == STATE_GLOSSARY_DETAIL) {
+            if (pressed & J_B) {
+                game_state = STATE_GLOSSARY_LIST;
+                full_clear();
+                glossary_list_draw();
+            }
         } else {
             // STATE_PLAY. START+SELECT together (in either press order)
-            // returns to the title screen; SELECT+UP (either order)
-            // opens the dice/coin roller; plain START alone resets the
-            // currently focused player's counters.
+            // returns to the title screen; SELECT+UP opens the
+            // dice/coin roller; SELECT+DOWN opens the glossary; plain
+            // START alone resets the currently focused player.
             if ((pressed & J_START) && (keys & J_SELECT)) {
                 return_to_title();
             } else if ((pressed & J_SELECT) && (keys & J_START)) {
@@ -705,6 +815,16 @@ void main(void) {
                 game_state = STATE_DICE;
                 full_clear();
                 dice_draw();
+            } else if ((pressed & J_DOWN) && (keys & J_SELECT)) {
+                glossary_return_state = STATE_PLAY;
+                game_state = STATE_GLOSSARY_LIST;
+                full_clear();
+                glossary_list_draw();
+            } else if ((pressed & J_SELECT) && (keys & J_DOWN)) {
+                glossary_return_state = STATE_PLAY;
+                game_state = STATE_GLOSSARY_LIST;
+                full_clear();
+                glossary_list_draw();
             } else if (pressed & J_START) {
                 reset_player(current_player);
                 redraw_life_and_elements_current();
