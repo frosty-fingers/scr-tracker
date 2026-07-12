@@ -241,6 +241,22 @@ static void print_value(uint8_t value) {
     printf("%u ", (unsigned int)value);
 }
 
+// Prints at most maxlen characters of s, stopping early at the null
+// terminator either way. Used anywhere a string comes from a data file
+// meant to be hand-edited (avatars.h, glossary.h) - if someone types
+// an entry longer than the space available for it, this clips it
+// instead of letting it overflow into neighboring text or off the
+// edge of the screen. Doesn't need any of the printf/%s varargs
+// casting caveats from docs/GOTCHAS.md since putchar() takes a single
+// fixed argument, not a variadic one.
+static void print_clipped(const char *s, uint8_t maxlen) {
+    uint8_t i = 0u;
+    while (s[i] != '\0' && i < maxlen) {
+        putchar(s[i]);
+        i++;
+    }
+}
+
 // ===================== title & avatar select screens ====================
 
 static void title_draw(void) {
@@ -263,6 +279,7 @@ static void title_draw(void) {
 }
 
 #define SETTINGS_NAME_COL         1u
+#define SETTINGS_NAME_MAXLEN      17u
 #define SETTINGS_ARROW_LEFT_COL   0u
 #define SETTINGS_ARROW_RIGHT_COL  19u
 
@@ -276,11 +293,13 @@ static void settings_draw(void) {
     printf(">");
 
     // Clear the full name field before printing - theme names vary in
-    // length (see docs/GOTCHAS.md's digit/name-clearing pattern).
+    // length (see docs/GOTCHAS.md's digit/name-clearing pattern) - and
+    // clip to the field width in case a future theme name is too long
+    // to fit (see print_clipped()'s comment).
     gotoxy(SETTINGS_NAME_COL, 9u);
-    printf("                  ");  // 18 spaces
+    printf("                 ");  // 17 spaces
     gotoxy(SETTINGS_NAME_COL, 9u);
-    printf(theme_names[theme_choice]);
+    print_clipped(theme_names[theme_choice], SETTINGS_NAME_MAXLEN);
 
     gotoxy(1u, 15u);
     printf("<>PICK B:BACK");
@@ -302,11 +321,13 @@ static void avatar_draw(uint8_t p) {
     // Clear the full name field before printing the new name - names
     // vary in length, so without this a shorter name would leave
     // stale characters from a longer previous one (same issue as the
-    // digit-clearing fix - see docs/GOTCHAS.md).
+    // digit-clearing fix - see docs/GOTCHAS.md) - and clip to the
+    // field width in case an edited avatars.h entry is too long to
+    // fit (see print_clipped()'s comment).
     gotoxy(AVATAR_NAME_COL, 9u);
-    printf("                  ");  // AVATAR_NAME_MAXLEN (18) spaces
+    printf("                 ");  // AVATAR_NAME_MAXLEN (17) spaces
     gotoxy(AVATAR_NAME_COL, 9u);
-    printf(avatar_names[avatar_choice[p]]);
+    print_clipped(avatar_names[avatar_choice[p]], AVATAR_NAME_MAXLEN);
 
     gotoxy(1u, 15u);
     printf("<>PICK A:OK");
@@ -356,6 +377,7 @@ static void dice_draw(void) {
     printf("B:BACK");
 }
 
+#define GLOSSARY_LIST_COL0      1u
 #define GLOSSARY_LIST_ROW0      2u
 #define GLOSSARY_VISIBLE_ROWS   13u
 #define GLOSSARY_LIST_HINT_ROW1 16u
@@ -385,13 +407,17 @@ static void glossary_list_draw(void) {
         row = GLOSSARY_LIST_ROW0 + i;
         idx = i + glossary_scroll;
 
-        gotoxy(0u, row);
-        printf("                  ");  // clear the row first - see docs/GOTCHAS.md
+        gotoxy(GLOSSARY_LIST_COL0, row);
+        printf("                 ");  // clear the row first (17 spaces) - see docs/GOTCHAS.md
 
         if (idx < GLOSSARY_COUNT) {
-            gotoxy(0u, row);
+            gotoxy(GLOSSARY_LIST_COL0, row);
             printf((idx == glossary_cursor) ? ">" : " ");
-            printf(glossary_terms[idx]);
+            // Leave 1 fewer character than the field's raw width for
+            // the term itself, since the cursor already used one, and
+            // clip in case an edited glossary.h entry is too long to
+            // fit (see print_clipped()'s comment).
+            print_clipped(glossary_terms[idx], GLOSSARY_TERM_MAXLEN - 1u);
         }
     }
 
@@ -403,13 +429,13 @@ static void glossary_detail_draw(void) {
     uint8_t i;
 
     gotoxy(1u, 1u);
-    printf("                  ");
+    printf("                 ");  // 17 spaces
     gotoxy(1u, 1u);
-    printf(glossary_terms[glossary_cursor]);
+    print_clipped(glossary_terms[glossary_cursor], GLOSSARY_TERM_MAXLEN);
 
     for (i = 0u; i < GLOSSARY_MAX_LINES; i++) {
         gotoxy(1u, 4u + i);
-        printf(glossary_def_lines[glossary_cursor][i]);
+        print_clipped(glossary_def_lines[glossary_cursor][i], GLOSSARY_LINE_MAXLEN);
     }
 
     gotoxy(1u, 16u);
@@ -429,6 +455,7 @@ static void glossary_detail_draw(void) {
 #define P1_ROW_HINT1      13u
 #define P1_ROW_HINT2      14u
 #define P1_ROW_HINT3      15u
+#define P1_ROW_HINT4      16u
 
 static const uint8_t p1_element_row[4] = { 7u, 8u, 9u, 10u };
 
@@ -455,6 +482,8 @@ static void solo_draw_static_ui(void) {
     printf("START:RESET");
     gotoxy(0u, P1_ROW_HINT3);
     printf("SEL+UP:DICE");
+    gotoxy(0u, P1_ROW_HINT4);
+    printf("SEL+DN:GLOSS");
 }
 
 static void solo_draw_life(void) {
@@ -514,6 +543,7 @@ static void solo_redraw_active(void) {
 #define TWO_ROW_HINT1   11u
 #define TWO_ROW_HINT2   12u
 #define TWO_ROW_HINT3   13u
+#define TWO_ROW_HINT4   14u
 
 static const uint8_t two_life_cursor_col[2] = { 0u, 19u };
 static const uint8_t two_life_label_col[2]  = { 1u, 15u };
@@ -537,6 +567,8 @@ static void two_draw_static_ui(void) {
     printf("START:RESET(cur)");
     gotoxy(1u, TWO_ROW_HINT3);
     printf("SEL+UP:DICE");
+    gotoxy(1u, TWO_ROW_HINT4);
+    printf("SEL+DN:GLOSS");
 
     for (i = 0u; i < 4u; i++) {
         paint_row(two_elem_attr_col[0], TWO_ROW_ELEM0 + i, MAX_SYMBOLS, i + 1u);
@@ -547,12 +579,12 @@ static void two_draw_static_ui(void) {
 static void two_draw_header(void) {
     gotoxy(two_header_col[0], TWO_ROW_HEADER);
     printf((current_player == 0u) ? "[" : " ");
-    printf(avatar_codes[avatar_choice[0]]);
+    print_clipped(avatar_codes[avatar_choice[0]], AVATAR_CODE_MAXLEN);
     printf((current_player == 0u) ? "]" : " ");
 
     gotoxy(two_header_col[1], TWO_ROW_HEADER);
     printf((current_player == 1u) ? "[" : " ");
-    printf(avatar_codes[avatar_choice[1]]);
+    print_clipped(avatar_codes[avatar_choice[1]], AVATAR_CODE_MAXLEN);
     printf((current_player == 1u) ? "]" : " ");
 }
 
