@@ -55,3 +55,29 @@ Read this before making changes.
 Ask before making structural changes (new MBC type, banking scheme,
 save format) — but for straightforward gameplay/bugfix work, just make
 a reasonable call and explain it briefly rather than stopping to ask.
+
+## Session handoff — read this first
+
+I use Claude across separate chats, so there's no guaranteed memory
+between sessions. **Before doing anything else, read `docs/STATUS.md`**
+if it exists — it holds current task, what's confirmed working, what's
+in progress/blocked, and the next step. Treat it as more current than
+your own assumptions about project state.
+
+**Keep `docs/STATUS.md` up to date as you go**, not just at the end:
+- Update it after any change that alters what's confirmed working vs.
+  still broken/untested (e.g. after isolating a bug, after confirming a
+  fix from a screenshot).
+- If a conversation is getting long or you sense you're running low on
+  room to keep working, proactively rewrite `docs/STATUS.md` to reflect
+  the exact current state *before* that becomes a problem — don't wait
+  to be asked. A stale status file is worse than no status file.
+- When you update it, say so briefly (e.g. "updated docs/STATUS.md")
+  so I know to commit it along with the code.
+
+Format: current focus, confirmed working, in progress/blocked (with
+what's been ruled out and why), next step. Keep it short — a few
+paragraphs, not a full log. `docs/GOTCHAS.md` stays the permanent
+record of confirmed hardware/toolchain issues; `docs/STATUS.md` is the
+disposable "what were we doing" snapshot that gets rewritten each time,
+not appended to.
