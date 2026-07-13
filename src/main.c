@@ -145,7 +145,12 @@ static void prime_console(void) {
 // Sets a color (CGB palette slot, 1-4 for elements - see elements.h)
 // across a horizontal run of background tiles. CGB only - no-op on DMG.
 static void paint_row(uint8_t col, uint8_t row, uint8_t w, uint8_t pal) {
-    uint8_t attr[MAX_SYMBOLS];
+    // Sized to the screen's full width (20), not MAX_SYMBOLS (8) - this
+    // is called with widths up to 16 (the "DEATHS DOOR" message), and
+    // an 8-byte buffer there was a real stack buffer overflow corrupting
+    // whatever else was on the stack. That's what caused 1-player mode
+    // to render garbage/blank - see docs/GOTCHAS.md.
+    uint8_t attr[20];
     uint8_t i;
 
     if (_cpu != CGB_TYPE) {
