@@ -116,7 +116,7 @@ static void apply_theme(void) {
     if (_cpu != CGB_TYPE) {
         return;
     }
-    set_bkg_palette(0u, 5u, theme_palettes[theme_choice]);
+    set_bkg_palette(0u, 6u, theme_palettes[theme_choice]);
 }
 
 // Rolls a die with the given number of sides (2 for a coin flip),
@@ -158,6 +158,23 @@ static void paint_row(uint8_t col, uint8_t row, uint8_t w, uint8_t pal) {
     VBK_REG = VBK_ATTRIBUTES;
     set_bkg_tiles(col, row, w, 1u, attr);
     VBK_REG = VBK_TILES;
+}
+
+// Named CGB palette slots (see theme_palettes in elements.h) - the
+// element slots (1-4) already come from icon_tile[]'s own index+1
+// wherever a whole row of symbols gets colored, but FIRE_PAL and
+// ACCENT_PAL get used directly by name in a few specific spots (the
+// Death's Door warning, and every selector indicator), so they're
+// named here for clarity rather than left as bare numbers there.
+#define TEXT_PAL    0u
+#define FIRE_PAL    3u
+#define ACCENT_PAL  5u
+
+// Colors a single cell as the theme's accent color - used for every
+// selector indicator (">"/"<" cursors, "[" "]" brackets) so they pop
+// as a highlight instead of blending into the regular text color.
+static void paint_selector(uint8_t col, uint8_t row) {
+    paint_row(col, row, 1u, ACCENT_PAL);
 }
 
 // cls() only clears the background tile ID plane, not the CGB
@@ -267,15 +284,19 @@ static void title_draw(void) {
 
     gotoxy(4u, 6u);
     printf((title_selection == 0u) ? ">1 PLAYER" : " 1 PLAYER");
+    paint_selector(4u, 6u);
     gotoxy(4u, 8u);
     printf((title_selection == 1u) ? ">2 PLAYER" : " 2 PLAYER");
+    paint_selector(4u, 8u);
     gotoxy(4u, 10u);
     printf((title_selection == 2u) ? ">SETTINGS" : " SETTINGS");
+    paint_selector(4u, 10u);
     gotoxy(4u, 12u);
     printf((title_selection == 3u) ? ">GLOSSARY" : " GLOSSARY");
+    paint_selector(4u, 12u);
 
     gotoxy(1u, 15u);
-    printf("^VSELECT A:START");
+    printf("SELECT A:START");
 }
 
 #define SETTINGS_NAME_COL         1u
@@ -289,8 +310,10 @@ static void settings_draw(void) {
 
     gotoxy(SETTINGS_ARROW_LEFT_COL, 9u);
     printf("<");
+    paint_selector(SETTINGS_ARROW_LEFT_COL, 9u);
     gotoxy(SETTINGS_ARROW_RIGHT_COL, 9u);
     printf(">");
+    paint_selector(SETTINGS_ARROW_RIGHT_COL, 9u);
 
     // Clear the full name field before printing - theme names vary in
     // length (see docs/GOTCHAS.md's digit/name-clearing pattern) - and
@@ -315,8 +338,10 @@ static void avatar_draw(uint8_t p) {
 
     gotoxy(AVATAR_ARROW_LEFT_COL, 9u);
     printf("<");
+    paint_selector(AVATAR_ARROW_LEFT_COL, 9u);
     gotoxy(AVATAR_ARROW_RIGHT_COL, 9u);
     printf(">");
+    paint_selector(AVATAR_ARROW_RIGHT_COL, 9u);
 
     // Clear the full name field before printing the new name - names
     // vary in length, so without this a shorter name would leave
@@ -349,8 +374,10 @@ static void dice_draw(void) {
 
     gotoxy(DICE_TYPE_ARROW_LEFT, DICE_ROW_TYPE);
     printf("<");
+    paint_selector(DICE_TYPE_ARROW_LEFT, DICE_ROW_TYPE);
     gotoxy(DICE_TYPE_ARROW_RIGHT, DICE_ROW_TYPE);
     printf(">");
+    paint_selector(DICE_TYPE_ARROW_RIGHT, DICE_ROW_TYPE);
 
     // Clear the type-name field first - "D20"/"D6"/"COIN" differ in
     // length (same reasoning as the avatar-name-clearing fix above).
@@ -409,6 +436,7 @@ static void glossary_list_draw(void) {
 
         gotoxy(GLOSSARY_LIST_COL0, row);
         printf("                 ");  // clear the row first (17 spaces) - see docs/GOTCHAS.md
+        paint_selector(GLOSSARY_LIST_COL0, row);
 
         if (idx < GLOSSARY_COUNT) {
             gotoxy(GLOSSARY_LIST_COL0, row);
@@ -477,7 +505,7 @@ static void solo_draw_static_ui(void) {
     }
 
     gotoxy(0u, P1_ROW_HINT1);
-    printf("^VSEL A:+ B:-");
+    printf("SEL A:+ B:-");
     gotoxy(0u, P1_ROW_HINT2);
     printf("START:RESET");
     gotoxy(0u, P1_ROW_HINT3);
@@ -489,12 +517,19 @@ static void solo_draw_static_ui(void) {
 static void solo_draw_life(void) {
     gotoxy(0u, P1_ROW_LIFE);
     printf((active[0] == COUNTER_LIFE) ? ">" : " ");
+    paint_selector(0u, P1_ROW_LIFE);
 
     gotoxy(9u, P1_ROW_LIFE);
     print_value(counters[0][COUNTER_LIFE]);
 
     gotoxy(2u, P1_ROW_DEATHDOOR);
-    printf((counters[0][COUNTER_LIFE] == LIFE_MIN) ? "  DEATHS DOOR   " : "                ");
+    if (counters[0][COUNTER_LIFE] == LIFE_MIN) {
+        printf("  DEATHS DOOR   ");
+        paint_row(2u, P1_ROW_DEATHDOOR, 16u, FIRE_PAL);
+    } else {
+        printf("                ");
+        paint_row(2u, P1_ROW_DEATHDOOR, 16u, TEXT_PAL);
+    }
 }
 
 static void solo_draw_element(uint8_t idx) {
@@ -517,6 +552,7 @@ static void solo_draw_element(uint8_t idx) {
 
     gotoxy(P1_COL_CURSOR, p1_element_row[idx]);
     printf((active[0] == COUNTER_AIR + idx) ? ">" : " ");
+    paint_selector(P1_COL_CURSOR, p1_element_row[idx]);
 }
 
 static void solo_draw_elements(void) {
@@ -562,7 +598,7 @@ static void two_draw_static_ui(void) {
     uint8_t i;
 
     gotoxy(1u, TWO_ROW_HINT1);
-    printf("SEL:SWAP ^VA+B-");
+    printf("SEL:SWAP A+B-");
     gotoxy(1u, TWO_ROW_HINT2);
     printf("START:RESET(cur)");
     gotoxy(1u, TWO_ROW_HINT3);
@@ -579,18 +615,23 @@ static void two_draw_static_ui(void) {
 static void two_draw_header(void) {
     gotoxy(two_header_col[0], TWO_ROW_HEADER);
     printf((current_player == 0u) ? "[" : " ");
+    paint_selector(two_header_col[0], TWO_ROW_HEADER);
     print_clipped(avatar_codes[avatar_choice[0]], AVATAR_CODE_MAXLEN);
     printf((current_player == 0u) ? "]" : " ");
+    paint_selector(two_header_col[0] + 1u + AVATAR_CODE_MAXLEN, TWO_ROW_HEADER);
 
     gotoxy(two_header_col[1], TWO_ROW_HEADER);
     printf((current_player == 1u) ? "[" : " ");
+    paint_selector(two_header_col[1], TWO_ROW_HEADER);
     print_clipped(avatar_codes[avatar_choice[1]], AVATAR_CODE_MAXLEN);
     printf((current_player == 1u) ? "]" : " ");
+    paint_selector(two_header_col[1] + 1u + AVATAR_CODE_MAXLEN, TWO_ROW_HEADER);
 }
 
 static void two_draw_life(uint8_t p) {
     gotoxy(two_life_cursor_col[p], TWO_ROW_LIFE);
     printf((active[p] == COUNTER_LIFE) ? two_cursor_char[p] : " ");
+    paint_selector(two_life_cursor_col[p], TWO_ROW_LIFE);
 
     gotoxy(two_life_label_col[p], TWO_ROW_LIFE);
     printf("LIFE");
@@ -599,7 +640,13 @@ static void two_draw_life(uint8_t p) {
     print_value(counters[p][COUNTER_LIFE]);
 
     gotoxy(two_door_col[p], TWO_ROW_DOOR);
-    printf((counters[p][COUNTER_LIFE] == LIFE_MIN) ? "DOOR" : "    ");
+    if (counters[p][COUNTER_LIFE] == LIFE_MIN) {
+        printf("DOOR");
+        paint_row(two_door_col[p], TWO_ROW_DOOR, 4u, FIRE_PAL);
+    } else {
+        printf("    ");
+        paint_row(two_door_col[p], TWO_ROW_DOOR, 4u, TEXT_PAL);
+    }
 }
 
 static void two_draw_element(uint8_t p, uint8_t idx) {
@@ -628,6 +675,7 @@ static void two_draw_element(uint8_t p, uint8_t idx) {
 
     gotoxy(two_elem_cursor_col[p], row);
     printf((active[p] == COUNTER_AIR + idx) ? two_cursor_char[p] : " ");
+    paint_selector(two_elem_cursor_col[p], row);
 }
 
 static void two_draw_elements(uint8_t p) {
