@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Packages a built .gbc into a versioned, checksummed release artifact.
 # Called by `make release`; expects VERSION, PROJECT, BUILDDIR, RELEASEDIR
-# to be exported by the Makefile.
+# to be exported by the Makefile. BUILD_NUMBER (the GitHub Actions run
+# number in CI, "local" otherwise) drives the filename so it increments
+# by one on every CI build and always matches the version shown on the
+# title screen (see BUILD_NUMBER in src/main.c).
 set -euo pipefail
 
 VERSION="${VERSION:?VERSION not set}"
 PROJECT="${PROJECT:?PROJECT not set}"
+BUILD_NUMBER="${BUILD_NUMBER:-local}"
 BUILDDIR="${BUILDDIR:-build}"
 RELEASEDIR="${RELEASEDIR:-release}"
 
@@ -17,8 +21,7 @@ fi
 
 mkdir -p "$RELEASEDIR"
 
-DATE_TAG=$(date +%Y%m%d)
-OUT_NAME="${PROJECT}-v${VERSION}-${DATE_TAG}"
+OUT_NAME="${PROJECT}-${BUILD_NUMBER}"
 OUT_ROM="$RELEASEDIR/${OUT_NAME}.gbc"
 
 cp "$ROM" "$OUT_ROM"
