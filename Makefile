@@ -1,4 +1,4 @@
-=====================================================================
+ =====================================================================
 # GBC Release Template — Makefile
 # Toolchain: GBDK-2020 (https://github.com/gbdk-2020/gbdk-2020)
 #
@@ -43,7 +43,7 @@ LCCFLAGS := -Wa-l -Wl-m -Wl-j \
             -Wl-yt$(CART_TYPE) \
             $(COLOR_MODE) \
             -Wm-yn"$(PROJECT)" \
-            -DBUILD_NUMBER='"$(BUILD_NUMBER)"' \
+            -DBUILD_NUMBER=$(BUILD_NUMBER) \
             -I$(INCDIR)
 
 SRC  := $(wildcard $(SRCDIR)/*.c) $(wildcard $(THIRDPARTY)/*/*.c)
