@@ -1,4 +1,4 @@
-# =====================================================================
+=====================================================================
 # GBC Release Template — Makefile
 # Toolchain: GBDK-2020 (https://github.com/gbdk-2020/gbdk-2020)
 #
@@ -11,8 +11,14 @@ GBDK_HOME  ?= /opt/gbdk/
 LCC        := $(GBDK_HOME)bin/lcc
 PNG2ASSET  := $(GBDK_HOME)bin/png2asset
 
-PROJECT    := sorceryLife
+PROJECT    := sorcerylife
 VERSION    := 0.1.0
+
+# Set by CI to the GitHub Actions run number (auto-increments every
+# build - see .github/workflows/build-rom.yml) so the ROM filename and
+# the version shown on the title screen always match. Local builds
+# that don't set this fall back to "local".
+BUILD_NUMBER ?= local
 
 SRCDIR     := src
 RESDIR     := res
@@ -22,8 +28,11 @@ THIRDPARTY := third_party
 RELEASEDIR := release
 
 # --- Cartridge configuration -----------------------------------------
-# 0x1B = MBC5 + RAM + BATTERY  (battery-backed save RAM, no rumble)
-# 0x1E = MBC5 + RAM + BATTERY + RUMBLE
+# This game has no save data, so it deliberately deviates from the
+# template default (0x1B = MBC5+RAM+BATTERY) down to ROM ONLY. Flagging
+# per CLAUDE.md's rule on changing cart/MBC config: 0x00 = ROM ONLY, no
+# RAM, no battery. src/save.c is still in the repo (unused) in case a
+# future version of this game wants persistence.
 CART_TYPE  := 0x00
 
 # -Wm-yc  = CGB-compatible (runs on GBC, degrades gracefully on DMG)
@@ -34,6 +43,7 @@ LCCFLAGS := -Wa-l -Wl-m -Wl-j \
             -Wl-yt$(CART_TYPE) \
             $(COLOR_MODE) \
             -Wm-yn"$(PROJECT)" \
+            -DBUILD_NUMBER='"$(BUILD_NUMBER)"' \
             -I$(INCDIR)
 
 SRC  := $(wildcard $(SRCDIR)/*.c) $(wildcard $(THIRDPARTY)/*/*.c)
@@ -55,9 +65,11 @@ $(BUILDDIR)/$(PROJECT).gbc: $(OBJ)
 
 # Convert a PNG in res/gfx to a .c/.h tile source pair.
 # Usage: make assets
-# Add more png2asset lines here as you add art.
+# No art assets yet - this game's element icons are hand-authored tile
+# data directly in src/elements.h. Uncomment/adapt if real art is added.
 assets:
-	$(PNG2ASSET) $(RESDIR)/gfx/player.png -o $(SRCDIR)/player_sprite.c -sw 16 -sh 16
+	@echo "No PNG assets configured yet - see res/gfx/README.md"
+	# $(PNG2ASSET) $(RESDIR)/gfx/player.png -o $(SRCDIR)/player_sprite.c -sw 16 -sh 16
 
 clean:
 	rm -rf $(BUILDDIR) $(RELEASEDIR)
@@ -68,5 +80,5 @@ run: all
 
 # Build + package a versioned, checksummed release artifact.
 release: clean all
-	VERSION=$(VERSION) PROJECT=$(PROJECT) BUILDDIR=$(BUILDDIR) RELEASEDIR=$(RELEASEDIR) \
+	VERSION=$(VERSION) PROJECT=$(PROJECT) BUILD_NUMBER=$(BUILD_NUMBER) BUILDDIR=$(BUILDDIR) RELEASEDIR=$(RELEASEDIR) \
 		bash tools/release.sh
