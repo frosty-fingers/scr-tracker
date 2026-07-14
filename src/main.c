@@ -16,6 +16,17 @@
 // system - music.h is still unused. Background music is intentionally
 // out of scope right now (see docs/STATUS.md).
 
+// BUILD_NUMBER is passed in by the Makefile (-DBUILD_NUMBER="...") -
+// in CI it's the GitHub Actions run number, which auto-increments on
+// every build with no extra state to track (see
+// .github/workflows/build-rom.yml and tools/release.sh, which use the
+// same number for the release .gbc's filename, so the title screen and
+// the filename always match). This fallback only kicks in for a plain
+// local `make` that doesn't set it.
+#ifndef BUILD_NUMBER
+#define BUILD_NUMBER "dev"
+#endif
+
 #define LIFE_START   20u
 #define LIFE_MIN     0u
 #define LIFE_MAX     20u
@@ -302,6 +313,16 @@ static void title_draw(void) {
 
     gotoxy(1u, 15u);
     printf("SELECT A:START");
+
+    // Build number - see the BUILD_NUMBER comment near the top of this
+    // file. Cleared first since it varies in length ("dev" vs. a CI
+    // run number that grows over time) - same pattern as every other
+    // variable-length field in this project (see docs/GOTCHAS.md).
+    gotoxy(1u, 17u);
+    printf("          ");  // 10 spaces
+    gotoxy(1u, 17u);
+    printf("V");
+    printf(BUILD_NUMBER);
 }
 
 #define SETTINGS_NAME_COL         1u
