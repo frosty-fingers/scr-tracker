@@ -33,12 +33,12 @@ jobs:
         run: |
           export GBDK_HOME=/opt/gbdk/
           make clean
-          make release
+          make release BUILD_NUMBER=${{ github.run_number }}
 
       - name: Upload ROM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rom-${{ github.sha }}
+          name: rom-${{ github.run_number }}
           path: |
             release/*.gbc
             release/*.sha256
