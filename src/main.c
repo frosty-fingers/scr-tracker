@@ -16,16 +16,25 @@
 // system - music.h is still unused. Background music is intentionally
 // out of scope right now (see docs/STATUS.md).
 
-// BUILD_NUMBER is passed in by the Makefile (-DBUILD_NUMBER="...") -
-// in CI it's the GitHub Actions run number, which auto-increments on
-// every build with no extra state to track (see
-// .github/workflows/build-rom.yml and tools/release.sh, which use the
-// same number for the release .gbc's filename, so the title screen and
-// the filename always match). This fallback only kicks in for a plain
-// local `make` that doesn't set it.
+// BUILD_NUMBER is passed in by the Makefile as a bare token
+// (-DBUILD_NUMBER=49, no quotes) - in CI it's the GitHub Actions run
+// number, which auto-increments on every build with no extra state to
+// track (see .github/workflows/build-rom.yml and tools/release.sh,
+// which use the same number for the release .gbc's filename, so the
+// title screen and the filename always match). BUILD_NUMBER_STR turns
+// that bare token into an actual string literal at compile time via
+// the standard two-macro stringize trick (the extra indirection through
+// STRINGIFY_HELPER matters - a single-level "#x" would stringize the
+// literal text "BUILD_NUMBER" instead of its expanded value). Passing
+// the raw value with no quotes at the Makefile level, rather than
+// embedding quote characters in the Makefile itself, sidesteps a real
+// Makefile-quoting issue hit in CI (see docs/GOTCHAS.md).
 #ifndef BUILD_NUMBER
-#define BUILD_NUMBER "dev"
+#define BUILD_NUMBER dev
 #endif
+#define STRINGIFY_HELPER(x) #x
+#define STRINGIFY(x) STRINGIFY_HELPER(x)
+#define BUILD_NUMBER_STR STRINGIFY(BUILD_NUMBER)
 
 #define LIFE_START   20u
 #define LIFE_MIN     0u
@@ -322,7 +331,7 @@ static void title_draw(void) {
     printf("          ");  // 10 spaces
     gotoxy(1u, 17u);
     printf("V");
-    printf(BUILD_NUMBER);
+    printf(BUILD_NUMBER_STR);
 }
 
 #define SETTINGS_NAME_COL         1u
