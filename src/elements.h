@@ -32,6 +32,24 @@ static const uint8_t element_tiles[4u * 16u] = {
     0xFF,0xFF,0x81,0x81,0x42,0x42,0x42,0x42,0x24,0x24,0x24,0x24,0x18,0x18,0x18,0x18,
 };
 
+// Hollow/filled squares for the Harbinger grid (dice_draw()'s 4th
+// option in main.c) - an unselected square is just an outlined frame,
+// a selected one is fully filled. Deliberately two different SHAPES,
+// not the same shape recolored, so the highlight still reads correctly
+// on original DMG hardware where there's no color at all - CGB adds an
+// accent color on top of this as a bonus, not a requirement.
+#define TILE_GRID_EMPTY   (TILE_FIRST_ELEMENT + 4u)
+#define TILE_GRID_FILLED  (TILE_FIRST_ELEMENT + 5u)
+
+static const uint8_t grid_square_tiles[2u * 16u] = {
+    // EMPTY - hollow frame
+    0xFF,0xFF, 0x81,0x81, 0x81,0x81, 0x81,0x81,
+    0x81,0x81, 0x81,0x81, 0x81,0x81, 0xFF,0xFF,
+    // FILLED - solid
+    0xFF,0xFF, 0xFF,0xFF, 0xFF,0xFF, 0xFF,0xFF,
+    0xFF,0xFF, 0xFF,0xFF, 0xFF,0xFF, 0xFF,0xFF,
+};
+
 // Color themes - each one is a full set of 6 CGB background palettes
 // (slot 0 = default text/UI, slots 1-4 = AIR/EARTH/FIRE/WATER, slot 5
 // = accent - used for selector indicators like the ">"/"<" cursors and
