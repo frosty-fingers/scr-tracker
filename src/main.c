@@ -95,11 +95,22 @@ static uint8_t glossary_scroll = 0u;
 #define DICE_D20         0u
 #define DICE_D6          1u
 #define DICE_COIN        2u
-#define DICE_TYPE_COUNT  3u
-static const uint8_t dice_sides[DICE_TYPE_COUNT] = { 20u, 6u, 2u };
-static const char *dice_type_label[DICE_TYPE_COUNT] = { "D20", "D6", "COIN" };
+#define DICE_HARBINGER   3u
+#define DICE_TYPE_COUNT  4u
+static const uint8_t dice_sides[DICE_TYPE_COUNT] = { 20u, 6u, 2u, 0u };  // 0 unused for HARBINGER
+static const char *dice_type_label[DICE_TYPE_COUNT] = { "D20", "D6", "COIN", "HARBINGER" };
 static uint8_t dice_type = 0u;
 static uint8_t dice_result = 0u;
+
+// Harbinger's 4x5 grid - grid_highlighted[i] is 1 if square i (row-
+// major, row = i/GRID_COLS, col = i%GRID_COLS) is one of the 3 chosen
+// squares this roll, 0 otherwise. All start unhighlighted (hollow)
+// until the first roll.
+#define GRID_COLS  4u
+#define GRID_ROWS  5u
+#define GRID_SQUARES  (GRID_COLS * GRID_ROWS)
+#define GRID_HIGHLIGHT_COUNT  3u
+static uint8_t grid_highlighted[GRID_SQUARES];
 
 // How long (in frames, ~60/sec) A/B must be held before auto-repeat
 // kicks in, and how many frames between each repeated step after that.
@@ -149,6 +160,42 @@ static void apply_theme(void) {
 static uint8_t dice_roll(uint8_t sides) {
     initrand(DIV_REG);
     return ((uint8_t)rand() % sides) + 1u;
+}
+
+// Clears every square back to unhighlighted (hollow) - called both at
+// the start of a fresh roll and whenever the dice/coin type changes
+// away from or back to Harbinger, so switching types and coming back
+// never shows a stale previous roll.
+static void grid_reset(void) {
+    uint8_t i;
+    for (i = 0u; i < GRID_SQUARES; i++) {
+        grid_highlighted[i] = 0u;
+    }
+}
+
+// Picks GRID_HIGHLIGHT_COUNT (3) unique squares out of GRID_SQUARES
+// (20) at random, no duplicates. Seeds DIV_REG *once* per roll, not
+// once per pick - reseeding inside the loop would sample DIV_REG
+// several times within the same button press, close enough together
+// that it could return the same (or a very similar) value each time,
+// defeating the whole point of using it as an unpredictable seed (see
+// dice_roll() above, which only needs one value so this doesn't apply
+// there). Rejection sampling from a single seeded sequence instead -
+// with only 20 possible values and 3 needed, this settles quickly.
+static void roll_grid(void) {
+    uint8_t count = 0u;
+    uint8_t idx;
+
+    grid_reset();
+
+    initrand(DIV_REG);
+    while (count < GRID_HIGHLIGHT_COUNT) {
+        idx = (uint8_t)rand() % GRID_SQUARES;
+        if (!grid_highlighted[idx]) {
+            grid_highlighted[idx] = 1u;
+            count++;
+        }
+    }
 }
 
 // ===================== console / graphics setup ========================
@@ -403,6 +450,55 @@ static void avatar_draw(uint8_t p) {
 #define DICE_ROW_HINT1        14u
 #define DICE_ROW_HINT2        15u
 
+#define GRID_COL0      6u
+#define GRID_ROW0      8u
+#define GRID_COL_STEP  2u
+// Total columns the grid visually spans, accounting for the gaps
+// between squares (GRID_COL_STEP) - NOT the same as GRID_COLS (the
+// number of squares). Squares sit at GRID_COL0, GRID_COL0+2,
+// GRID_COL0+4, GRID_COL0+6, so the span is 7 columns wide, not 4 -
+// clearing only GRID_COLS columns would miss the two rightmost squares
+// entirely.
+#define GRID_SPAN_COLS  ((GRID_COLS - 1u) * GRID_COL_STEP + 1u)
+
+// Draws all 20 grid squares - hollow by default, filled (and accent-
+// colored on CGB) for whichever 3 are in grid_highlighted[].
+static void draw_grid(void) {
+    uint8_t r, c, idx, tile;
+
+    for (r = 0u; r < GRID_ROWS; r++) {
+        for (c = 0u; c < GRID_COLS; c++) {
+            idx = (r * GRID_COLS) + c;
+            tile = grid_highlighted[idx] ? TILE_GRID_FILLED : TILE_GRID_EMPTY;
+            set_bkg_tiles(GRID_COL0 + (c * GRID_COL_STEP), GRID_ROW0 + r, 1u, 1u, &tile);
+            paint_row(GRID_COL0 + (c * GRID_COL_STEP), GRID_ROW0 + r, 1u,
+                      grid_highlighted[idx] ? ACCENT_PAL : TEXT_PAL);
+        }
+    }
+}
+
+// Blanks both the normal text-result field and the grid area - called
+// every time regardless of dice_type, so switching between a text
+// result (D20/D6/COIN) and the Harbinger grid never leaves stale
+// content from the other mode behind (same "always clear before
+// drawing, don't assume the old state" pattern as everywhere else in
+// this project - see docs/GOTCHAS.md).
+static void clear_dice_result_area(void) {
+    uint8_t blank[GRID_SPAN_COLS];
+    uint8_t r;
+    uint8_t i;
+
+    gotoxy(DICE_RESULT_COL, DICE_ROW_RESULT);
+    printf("                  ");  // 18 spaces
+
+    for (i = 0u; i < GRID_SPAN_COLS; i++) {
+        blank[i] = 0u;
+    }
+    for (r = 0u; r < GRID_ROWS; r++) {
+        set_bkg_tiles(GRID_COL0, GRID_ROW0 + r, GRID_SPAN_COLS, 1u, blank);
+    }
+}
+
 static void dice_draw(void) {
     gotoxy(4u, DICE_ROW_TITLE);
     printf("DICE / COIN");
@@ -414,23 +510,27 @@ static void dice_draw(void) {
     printf(">");
     paint_selector(DICE_TYPE_ARROW_RIGHT, DICE_ROW_TYPE);
 
-    // Clear the type-name field first - "D20"/"D6"/"COIN" differ in
-    // length (same reasoning as the avatar-name-clearing fix above).
+    // Clear the type-name field first - "D20"/"D6"/"COIN"/"HARBINGER"
+    // differ in length (same reasoning as the avatar-name-clearing fix
+    // above).
     gotoxy(DICE_TYPE_COL, DICE_ROW_TYPE);
     printf("                ");  // 16 spaces
     gotoxy(DICE_TYPE_COL, DICE_ROW_TYPE);
     printf(dice_type_label[dice_type]);
 
-    // Same for the result field.
-    gotoxy(DICE_RESULT_COL, DICE_ROW_RESULT);
-    printf("                  ");  // 18 spaces
-    gotoxy(DICE_RESULT_COL, DICE_ROW_RESULT);
-    if (dice_result == 0u) {
-        printf("PRESS A TO ROLL");
-    } else if (dice_type == DICE_COIN) {
-        printf((dice_result == 1u) ? "HEADS" : "TAILS");
+    clear_dice_result_area();
+
+    if (dice_type == DICE_HARBINGER) {
+        draw_grid();
     } else {
-        printf("RESULT: %u", (unsigned int)dice_result);
+        gotoxy(DICE_RESULT_COL, DICE_ROW_RESULT);
+        if (dice_result == 0u) {
+            printf("PRESS A TO ROLL");
+        } else if (dice_type == DICE_COIN) {
+            printf((dice_result == 1u) ? "HEADS" : "TAILS");
+        } else {
+            printf("RESULT: %u", (unsigned int)dice_result);
+        }
     }
 
     gotoxy(1u, DICE_ROW_HINT1);
@@ -790,6 +890,7 @@ void main(void) {
     init_sound();
     prime_console();
     set_bkg_data(TILE_FIRST_ELEMENT, 4u, element_tiles);
+    set_bkg_data(TILE_GRID_EMPTY, 2u, grid_square_tiles);
     apply_theme();
     clear_attributes();
 
@@ -872,13 +973,19 @@ void main(void) {
             if (pressed & J_LEFT) {
                 dice_type = (dice_type == 0u) ? (DICE_TYPE_COUNT - 1u) : (dice_type - 1u);
                 dice_result = 0u;
+                grid_reset();
                 dice_draw();
             } else if (pressed & J_RIGHT) {
                 dice_type = (dice_type == DICE_TYPE_COUNT - 1u) ? 0u : (dice_type + 1u);
                 dice_result = 0u;
+                grid_reset();
                 dice_draw();
             } else if (pressed & J_A) {
-                dice_result = dice_roll(dice_sides[dice_type]);
+                if (dice_type == DICE_HARBINGER) {
+                    roll_grid();
+                } else {
+                    dice_result = dice_roll(dice_sides[dice_type]);
+                }
                 dice_draw();
             } else if (pressed & J_B) {
                 game_state = STATE_PLAY;
