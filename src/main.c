@@ -106,8 +106,8 @@ static uint8_t dice_result = 0u;
 // major, row = i/GRID_COLS, col = i%GRID_COLS) is one of the 3 chosen
 // squares this roll, 0 otherwise. All start unhighlighted (hollow)
 // until the first roll.
-#define GRID_COLS  4u
-#define GRID_ROWS  5u
+#define GRID_COLS  5u
+#define GRID_ROWS  4u
 #define GRID_SQUARES  (GRID_COLS * GRID_ROWS)
 #define GRID_HIGHLIGHT_COUNT  3u
 static uint8_t grid_highlighted[GRID_SQUARES];
