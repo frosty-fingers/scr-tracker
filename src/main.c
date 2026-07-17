@@ -9,6 +9,7 @@
 #include "elements.h"
 #include "avatars.h"
 #include "glossary.h"
+#include "printer.h"
 
 // NOTE: this project has no save data, so save.h (still present in
 // src/) is intentionally not included here. Sound uses direct PSG
@@ -86,8 +87,42 @@ static uint8_t theme_choice = 0u;
 // backing out of a single entry's detail view always just returns to
 // the list, regardless of how the glossary was opened).
 static uint8_t glossary_return_state = STATE_TITLE;
-static uint8_t glossary_cursor = 0u;
+static uint8_t glossary_current_page = PAGE_KEYWORDS;
+static uint8_t glossary_cursor = 0u;  // index WITHIN the current page, not into glossary_terms[] directly
 static uint8_t glossary_scroll = 0u;
+
+// How many glossary_terms[] entries belong to the given page.
+static uint8_t glossary_page_count(uint8_t page) {
+    uint8_t count = 0u;
+    uint8_t i;
+    for (i = 0u; i < GLOSSARY_COUNT; i++) {
+        if (glossary_page[i] == page) {
+            count++;
+        }
+    }
+    return count;
+}
+
+// Resolves a page-relative position (the "nth entry on this page", 0-
+// based - what glossary_cursor actually holds) to its real index into
+// glossary_terms[]/glossary_def_lines[]. Entries for a page don't need
+// to be contiguous in those arrays, so this always does a fresh scan
+// rather than assuming any particular layout - GLOSSARY_COUNT is small
+// enough (called only on button presses, not per-frame) that this
+// isn't a performance concern.
+static uint8_t glossary_page_nth_index(uint8_t page, uint8_t n) {
+    uint8_t i;
+    uint8_t seen = 0u;
+    for (i = 0u; i < GLOSSARY_COUNT; i++) {
+        if (glossary_page[i] == page) {
+            if (seen == n) {
+                return i;
+            }
+            seen++;
+        }
+    }
+    return 0u;  // shouldn't happen if n < glossary_page_count(page)
+}
 
 // Dice/coin roller - opened during a match with SELECT+UP (see the
 // STATE_PLAY input handling), since every single button is already
@@ -450,15 +485,15 @@ static void avatar_draw(uint8_t p) {
 #define DICE_ROW_HINT1        14u
 #define DICE_ROW_HINT2        15u
 
-#define GRID_COL0      6u
+#define GRID_COL0      5u
 #define GRID_ROW0      8u
 #define GRID_COL_STEP  2u
 // Total columns the grid visually spans, accounting for the gaps
 // between squares (GRID_COL_STEP) - NOT the same as GRID_COLS (the
 // number of squares). Squares sit at GRID_COL0, GRID_COL0+2,
-// GRID_COL0+4, GRID_COL0+6, so the span is 7 columns wide, not 4 -
-// clearing only GRID_COLS columns would miss the two rightmost squares
-// entirely.
+// GRID_COL0+4, GRID_COL0+6, GRID_COL0+8, so the span is 9 columns
+// wide, not 5 - clearing only GRID_COLS columns would miss the
+// rightmost squares entirely.
 #define GRID_SPAN_COLS  ((GRID_COLS - 1u) * GRID_COL_STEP + 1u)
 
 // Draws all 20 grid squares - hollow by default, filled (and accent-
@@ -483,6 +518,21 @@ static void draw_grid(void) {
 // content from the other mode behind (same "always clear before
 // drawing, don't assume the old state" pattern as everywhere else in
 // this project - see docs/GOTCHAS.md).
+// Blanks both the normal text-result field and the grid area - called
+// every time regardless of dice_type, so switching between a text
+// result (D20/D6/COIN) and the Harbinger grid never leaves stale
+// content from the other mode behind (same "always clear before
+// drawing, don't assume the old state" pattern as everywhere else in
+// this project - see docs/GOTCHAS.md).
+//
+// This resets BOTH the tile IDs and the color attribute plane. Tile
+// IDs alone isn't enough: a highlighted grid square's cell keeps its
+// accent-color attribute even after the tile underneath it is blanked
+// (paint_row() and set_bkg_tiles() touch separate VRAM planes - see
+// the cls()-doesn't-clear-attributes gotcha). Without repainting the
+// attribute plane too, switching away from Harbinger and printing a
+// normal text result on the same row would render that text in
+// whatever accent color was last left on those specific cells.
 static void clear_dice_result_area(void) {
     uint8_t blank[GRID_SPAN_COLS];
     uint8_t r;
@@ -490,12 +540,14 @@ static void clear_dice_result_area(void) {
 
     gotoxy(DICE_RESULT_COL, DICE_ROW_RESULT);
     printf("                  ");  // 18 spaces
+    paint_row(DICE_RESULT_COL, DICE_ROW_RESULT, 18u, TEXT_PAL);
 
     for (i = 0u; i < GRID_SPAN_COLS; i++) {
         blank[i] = 0u;
     }
     for (r = 0u; r < GRID_ROWS; r++) {
         set_bkg_tiles(GRID_COL0, GRID_ROW0 + r, GRID_SPAN_COLS, 1u, blank);
+        paint_row(GRID_COL0, GRID_ROW0 + r, GRID_SPAN_COLS, TEXT_PAL);
     }
 }
 
@@ -543,6 +595,7 @@ static void dice_draw(void) {
 #define GLOSSARY_LIST_ROW0      2u
 #define GLOSSARY_VISIBLE_ROWS   13u
 #define GLOSSARY_LIST_HINT_ROW1 16u
+#define GLOSSARY_LIST_HINT_ROW2 17u
 
 // Keeps the scroll window containing whatever's currently selected -
 // works the same way whether the cursor moved one step or jumped
@@ -557,52 +610,87 @@ static void glossary_clamp_scroll(void) {
     }
 }
 
+#define GLOSSARY_PAGE_ARROW_LEFT   0u
+#define GLOSSARY_PAGE_ARROW_RIGHT  19u
+#define GLOSSARY_PAGE_NAME_COL     2u
+
 static void glossary_list_draw(void) {
     uint8_t i;
-    uint8_t idx;
+    uint8_t filtered_idx;
+    uint8_t actual_idx;
     uint8_t row;
+    uint8_t page_count = glossary_page_count(glossary_current_page);
 
-    gotoxy(6u, 0u);
-    printf("GLOSSARY");
+    gotoxy(GLOSSARY_PAGE_ARROW_LEFT, 0u);
+    printf("<");
+    paint_selector(GLOSSARY_PAGE_ARROW_LEFT, 0u);
+    gotoxy(GLOSSARY_PAGE_ARROW_RIGHT, 0u);
+    printf(">");
+    paint_selector(GLOSSARY_PAGE_ARROW_RIGHT, 0u);
+
+    // Clear the page name field first - "KEYWORDS"/"TOKENS" (or
+    // whatever pages get added later) differ in length.
+    gotoxy(GLOSSARY_PAGE_NAME_COL, 0u);
+    printf("                ");  // GLOSSARY_PAGE_NAME_MAXLEN (16) spaces
+    gotoxy(GLOSSARY_PAGE_NAME_COL, 0u);
+    print_clipped(glossary_page_names[glossary_current_page], GLOSSARY_PAGE_NAME_MAXLEN);
 
     for (i = 0u; i < GLOSSARY_VISIBLE_ROWS; i++) {
         row = GLOSSARY_LIST_ROW0 + i;
-        idx = i + glossary_scroll;
+        filtered_idx = i + glossary_scroll;
 
         gotoxy(GLOSSARY_LIST_COL0, row);
         printf("                 ");  // clear the row first (17 spaces) - see docs/GOTCHAS.md
         paint_selector(GLOSSARY_LIST_COL0, row);
 
-        if (idx < GLOSSARY_COUNT) {
+        if (filtered_idx < page_count) {
+            actual_idx = glossary_page_nth_index(glossary_current_page, filtered_idx);
             gotoxy(GLOSSARY_LIST_COL0, row);
-            printf((idx == glossary_cursor) ? ">" : " ");
+            printf((filtered_idx == glossary_cursor) ? ">" : " ");
             // Leave 1 fewer character than the field's raw width for
             // the term itself, since the cursor already used one, and
             // clip in case an edited glossary.h entry is too long to
             // fit (see print_clipped()'s comment).
-            print_clipped(glossary_terms[idx], GLOSSARY_TERM_MAXLEN - 1u);
+            print_clipped(glossary_terms[actual_idx], GLOSSARY_TERM_MAXLEN - 1u);
         }
     }
 
     gotoxy(1u, GLOSSARY_LIST_HINT_ROW1);
-    printf("UP/DN A:VIEW B:BACK");
+    printf("<>PG UP/DN A:VIEW");
+    gotoxy(1u, GLOSSARY_LIST_HINT_ROW2);
+    printf("B:BACK");
+}
+
+#define PRINT_STATUS_ROW      14u
+#define PRINT_STATUS_MAXLEN   17u  // longest message ("NO PRINTER FOUND") is 16 chars
+
+// Clears then prints a status line for the glossary print feature -
+// same "clear the full field first" pattern as everywhere else
+// variable-length text gets redrawn (see docs/GOTCHAS.md). Widths of
+// "PRINTING..." / "PRINTED!" / "NO PRINTER FOUND" all differ.
+static void print_status_line(const char *msg) {
+    gotoxy(1u, PRINT_STATUS_ROW);
+    printf("                 ");  // PRINT_STATUS_MAXLEN (17) spaces
+    gotoxy(1u, PRINT_STATUS_ROW);
+    print_clipped(msg, PRINT_STATUS_MAXLEN);
 }
 
 static void glossary_detail_draw(void) {
     uint8_t i;
+    uint8_t actual_idx = glossary_page_nth_index(glossary_current_page, glossary_cursor);
 
     gotoxy(1u, 1u);
     printf("                 ");  // 17 spaces
     gotoxy(1u, 1u);
-    print_clipped(glossary_terms[glossary_cursor], GLOSSARY_TERM_MAXLEN);
+    print_clipped(glossary_terms[actual_idx], GLOSSARY_TERM_MAXLEN);
 
     for (i = 0u; i < GLOSSARY_MAX_LINES; i++) {
         gotoxy(1u, 4u + i);
-        print_clipped(glossary_def_lines[glossary_cursor][i], GLOSSARY_LINE_MAXLEN);
+        print_clipped(glossary_def_lines[actual_idx][i], GLOSSARY_LINE_MAXLEN);
     }
 
     gotoxy(1u, 16u);
-    printf("B:BACK");
+    printf("A:PRINT B:BACK");
 }
 
 // ===================== 1-player UI (unchanged layout) ====================
@@ -993,12 +1081,30 @@ void main(void) {
             }
         } else if (game_state == STATE_GLOSSARY_LIST) {
             if (pressed & J_DOWN) {
-                glossary_cursor = (glossary_cursor == GLOSSARY_COUNT - 1u) ? 0u : (glossary_cursor + 1u);
-                glossary_clamp_scroll();
-                glossary_list_draw();
+                uint8_t page_count = glossary_page_count(glossary_current_page);
+                if (page_count > 0u) {
+                    glossary_cursor = (glossary_cursor == page_count - 1u) ? 0u : (glossary_cursor + 1u);
+                    glossary_clamp_scroll();
+                    glossary_list_draw();
+                }
             } else if (pressed & J_UP) {
-                glossary_cursor = (glossary_cursor == 0u) ? (GLOSSARY_COUNT - 1u) : (glossary_cursor - 1u);
-                glossary_clamp_scroll();
+                uint8_t page_count = glossary_page_count(glossary_current_page);
+                if (page_count > 0u) {
+                    glossary_cursor = (glossary_cursor == 0u) ? (page_count - 1u) : (glossary_cursor - 1u);
+                    glossary_clamp_scroll();
+                    glossary_list_draw();
+                }
+            } else if (pressed & J_LEFT) {
+                glossary_current_page = (glossary_current_page == 0u)
+                    ? (GLOSSARY_PAGE_COUNT - 1u) : (glossary_current_page - 1u);
+                glossary_cursor = 0u;
+                glossary_scroll = 0u;
+                glossary_list_draw();
+            } else if (pressed & J_RIGHT) {
+                glossary_current_page = (glossary_current_page == GLOSSARY_PAGE_COUNT - 1u)
+                    ? 0u : (glossary_current_page + 1u);
+                glossary_cursor = 0u;
+                glossary_scroll = 0u;
                 glossary_list_draw();
             } else if (pressed & J_A) {
                 game_state = STATE_GLOSSARY_DETAIL;
@@ -1015,7 +1121,17 @@ void main(void) {
                 }
             }
         } else if (game_state == STATE_GLOSSARY_DETAIL) {
-            if (pressed & J_B) {
+            if (pressed & J_A) {
+                uint8_t actual_idx = glossary_page_nth_index(glossary_current_page, glossary_cursor);
+                print_status_line("PRINTING...");
+                if (printer_print_card(glossary_terms[actual_idx],
+                                        glossary_def_lines[actual_idx],
+                                        GLOSSARY_MAX_LINES)) {
+                    print_status_line("PRINTED!");
+                } else {
+                    print_status_line("NO PRINTER FOUND");
+                }
+            } else if (pressed & J_B) {
                 game_state = STATE_GLOSSARY_LIST;
                 full_clear();
                 glossary_list_draw();
