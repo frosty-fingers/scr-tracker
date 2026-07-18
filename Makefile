@@ -50,7 +50,7 @@ SRC  := $(wildcard $(SRCDIR)/*.c) $(wildcard $(THIRDPARTY)/*/*.c)
 OBJ  := $(patsubst %.c,$(BUILDDIR)/%.o,$(notdir $(SRC)))
 vpath %.c $(SRCDIR) $(THIRDPARTY)/hUGEDriver
 
-.PHONY: all clean release run assets
+.PHONY: all clean release run assets test
 
 all: $(BUILDDIR)/$(PROJECT).gbc
 
@@ -82,3 +82,21 @@ run: all
 release: clean all
 	VERSION=$(VERSION) PROJECT=$(PROJECT) BUILD_NUMBER=$(BUILD_NUMBER) BUILDDIR=$(BUILDDIR) RELEASEDIR=$(RELEASEDIR) \
 		bash tools/release.sh
+
+# --- Host-side logic tests -------------------------------------------
+# Tests pure logic that's been deliberately extracted into modules with
+# NO GBDK/hardware dependency (see docs/TESTING.md) - compiled and run
+# with a plain compiler on whatever machine is doing the testing, not
+# the GBDK toolchain. No emulator, no Game Boy needed. Fast enough to
+# run on every push, before ever touching the slow GBDK build.
+#
+# Currently one test file, one logic module - as more logic gets
+# extracted this way, add its .c file to the link line below (or split
+# into a per-test-file variable if that gets unwieldy).
+TEST_CC ?= cc
+
+test: | $(BUILDDIR)
+	$(TEST_CC) -Wall -Wextra -std=c99 -I$(SRCDIR) \
+		tests/test_glossary_logic.c $(SRCDIR)/glossary_logic.c \
+		-o $(BUILDDIR)/test_glossary_logic
+	./$(BUILDDIR)/test_glossary_logic
